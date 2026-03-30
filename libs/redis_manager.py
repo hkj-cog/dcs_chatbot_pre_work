@@ -1,3 +1,5 @@
+import asyncio
+from typing import Awaitable, Callable
 import redis.asyncio as redis
 
 from libs.logger import logger
@@ -26,5 +28,36 @@ class RedisManager:
         """Returns a Redis client from the pool."""
         return redis.Redis(connection_pool=self.pool)
 
+    async def start_subscriber(
+        self, channel: str, callback: Callable[[str, str], Awaitable[None]]
+    ):
+        """
+        Listens for messages and executes the provided async callback.
+        """
+        logger.info(f"Starting subscriber for channel: {channel}")
+        client = self.get_client()
+        pubsub = client.pubsub()
+        await pubsub.psubscribe(channel)
+        logger.info(f"Subscribed to {channel}. Awaiting messages...")
+
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "pmessage":
+                    data = message["data"]
+                    channel = message["channel"]
+                    await callback(data, channel)
+        except asyncio.CancelledError:
+            logger.info(f"Closing subscriber for {channel}")
+        finally:
+            await pubsub.close()
+
 
 redis_manager = RedisManager(host="localhost", port=6379)
+
+
+async def get_redis():
+    client = redis_manager.get_client()
+    try:
+        yield client
+    finally:
+        await client.close()

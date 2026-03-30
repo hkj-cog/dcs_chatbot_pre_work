@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     pubsub_emulator_host: str = Field(
         default="127.0.0.1:8000", validation_alias="PUBSUB_EMULATOR_HOST"
     )
-    # Configuration to load from .env file
+    allowed_origins: str = Field(default="*", validation_alias="ALLOWED_ORIGINS")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
