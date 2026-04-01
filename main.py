@@ -11,22 +11,23 @@ from fastapi.middleware.cors import CORSMiddleware
 settings = Settings()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await redis_manager.init_pool()
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     await redis_manager.init_pool()
+#
+#     # Pass the function 'process_redis_message' as the callback
+#     sub_task = asyncio.create_task(
+#         redis_manager.start_subscriber("user_*", process_redis_message)
+#     )
+#
+#     yield
+#
+#     sub_task.cancel()
+#     await redis_manager.close_pool()
 
-    # Pass the function 'process_redis_message' as the callback
-    sub_task = asyncio.create_task(
-        redis_manager.start_subscriber("user_*", process_redis_message)
-    )
 
-    yield
-
-    sub_task.cancel()
-    await redis_manager.close_pool()
-
-
-app = FastAPI(lifespan=lifespan)
+# app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 raw_origins = settings.allowed_origins
 
