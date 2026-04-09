@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 settings = Settings()
 
-
+# TODO test
 # @asynccontextmanager
 # async def lifespan(app: FastAPI):
 #     await redis_manager.init_pool()

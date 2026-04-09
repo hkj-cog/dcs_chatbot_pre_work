@@ -45,7 +45,7 @@ async def send_message_to_pubsub(message: dict[str, str], session_id: str):
     """
     try:
         logger.info(
-            f"Preparing to publish message to Pub/Sub: {message} with session_id={session_id}"
+            f"Preparing to publish message to Pub/Sub: {message} with session_id={session_id}, topic={TOPIC_PATH}"
         )
         data = json.dumps(message).encode("utf-8")
 
