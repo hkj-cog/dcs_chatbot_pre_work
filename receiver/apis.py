@@ -1,33 +1,45 @@
 import asyncio
-from typing import Annotated, Optional
-from fastapi import APIRouter, Header, Response
+from typing import Annotated
+
+from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
 from google.genai import types
 
+from agent.dlp import GoogleDlp
+from agent.utils import get_gcp_project_id
 from agent.vertex_agent import runner, session_service
+from libs.config import get_settings
 from libs.logger import logger
 from libs.pubsub import send_message_to_pubsub
-
 from .models import ChatRequest
 
 router = APIRouter()
 
+# DLP singleton — initialised once at module load, reused for all requests
+_settings = get_settings()
+_dlp = GoogleDlp(
+    project=get_gcp_project_id() or _settings.project_id,
+    info_types=_settings.pii_data_types,
+)
 
-@router.get("/test")  # Use @router, NOT @app
+
+@router.get("/test")
 async def test_endpoint():
     return {"message": "Success"}
 
 
 async def handle_user_query(user_id: str, session_id: str, user_input: str):
-    response: dict[str, str] = {}
     final_content = ""
     try:
+        # ── Guardrail: DLP — strip PII before agent sees the input ──────────
+        sanitized_input = _dlp.invoke(user_input)
+
         async for event in runner.run_async(
-            user_id=user_id,  # Dynamic from header
-            session_id=session_id,  # Dynamic from header
+            user_id=user_id,
+            session_id=session_id,
             new_message=types.Content(
                 role="user",
-                parts=[types.Part.from_text(text=user_input)],  # Dynamic from body
+                parts=[types.Part.from_text(text=sanitized_input)],  # sanitized
             ),
         ):
             if event.is_final_response() and event.content:
@@ -43,6 +55,7 @@ async def handle_user_query(user_id: str, session_id: str, user_input: str):
                     final_content += str(event.content)
             elif getattr(event, "error_code", None):
                 final_content = "error"
+
         await send_message_to_pubsub(
             {"sender": "system", "content": final_content}, session_id=session_id
         )
@@ -61,18 +74,16 @@ async def save_chat(
     session_id: Annotated[str | None, Header(alias="x-session-id")] = None,
 ):
     if session_id:
-        session = await session_service.get_session(
+        await session_service.get_session(
             session_id=session_id,
-            app_name="adk-chatbot",  # This should match the app_name used in your Agent definition
+            app_name="adk-chatbot",
             user_id=user_id,
         )
-        session_id = session_id
 
     if not session_id:
         session = await session_service.create_session(
-            app_name="adk-chatbot",  # This should match the app_name used in your Agent definition
+            app_name="adk-chatbot",
             user_id=user_id,
-            # app_name should be defined globally or passed in
         )
         session_id = session.id
 

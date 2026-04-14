@@ -37,7 +37,9 @@ google-cloud-bigtable==2.35.0
 google-cloud-core==2.5.0
 google-cloud-dataplex==2.17.0
 google-cloud-discoveryengine==0.13.12
+google-cloud-dlp==3.36.0
 google-cloud-iam==2.21.0
+google-cloud-language==2.20.0
 google-cloud-logging==3.15.0
 google-cloud-monitoring==2.30.0
 google-cloud-pubsub==2.36.0
@@ -56,6 +58,9 @@ grpc-google-iam-v1==0.14.3
 grpc-interceptor==0.15.4
 grpcio==1.78.0
 grpcio-status==1.78.0
+guardrails-ai==0.1.8
+guardrails-api-client==0.4.0
+guardrails_hub_types==0.0.4
 h11==0.16.0
 httpcore==1.0.9
 httplib2==0.31.2

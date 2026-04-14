@@ -11,7 +11,7 @@ from google.api_core import retry as retries
 
 settings = Settings()
 publisher = pubsub_v1.PublisherClient()
-project_id = settings.project_id
+project_id = settings.GOOGLE_CLOUD_PROJECT
 topic = settings.queue_topic
 emulator_host = settings.pubsub_emulator_host
 
@@ -36,7 +36,7 @@ def create_publisher_client() -> pubsub_v1.PublisherClient:
 
 
 publisher = create_publisher_client()
-TOPIC_PATH = publisher.topic_path(settings.project_id, settings.queue_topic)
+TOPIC_PATH = publisher.topic_path(settings.GOOGLE_CLOUD_PROJECT, settings.queue_topic)
 
 
 async def send_message_to_pubsub(message: dict[str, str], session_id: str):
