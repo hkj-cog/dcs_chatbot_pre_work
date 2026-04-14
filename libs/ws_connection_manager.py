@@ -1,45 +1,50 @@
 import asyncio
 from fastapi import WebSocket
-from redis.asyncio import Redis
 
 from libs.logger import logger
-from libs.redis_manager import get_redis, redis_manager
+from libs.redis_manager import redis_manager
+
+_SESSION_TTL_SECONDS = 60 * 100
 
 
 class ConnectionManager:
-    def __init__(
-        self,
-    ):
+    def __init__(self) -> None:
         self.active_connections: dict[str, WebSocket] = {}
         self.redis = redis_manager.get_client()
 
-    async def connect(self, session_id: str, websocket: WebSocket):
+    async def connect(self, session_id: str, websocket: WebSocket) -> None:
         await websocket.accept()
         self.active_connections[session_id] = websocket
-        # await self.redis.clset(redis_key, "online", ex=60)
-        redis_key = f"status:{session_id}"
-        await self.redis.set(redis_key, "online", ex=60 * 100)
-        logger.info(f"New connection established for session_id: {session_id}")
 
-    async def disconnect(self, session_id: str):
-        logger.info(f"clinet disconnected {session_id}")
+        redis_key = f"status:{session_id}"
+        await self.redis.set(redis_key, "online", ex=_SESSION_TTL_SECONDS)
+
+        logger.info(f"WebSocket connected — session_id={session_id}")
+
+    async def disconnect(self, session_id: str) -> None:
         self.active_connections.pop(session_id, None)
         redis_key = f"status:{session_id}"
-        await self.redis.delete(redis_key, "online")
+        await self.redis.delete(redis_key)
+        logger.info(f"WebSocket disconnected — session_id={session_id}")
 
-    async def send_personal_message(self, message: dict[str, str], session_id: str):
+    async def send_personal_message(
+        self, message: dict, session_id: str
+    ) -> None:
         websocket = self.active_connections.get(session_id)
-        if websocket:
-            try:
-                await asyncio.wait_for(websocket.send_json(message), timeout=5.0)
-                logger.info(f"Sent message to {session_id}: {message}")
-            except Exception as e:
-                logger.error(f"Error sending message to {session_id}: {e}")
-                await self.disconnect(session_id)
-        else:
+        if websocket is None:
             logger.warning(
-                f"Attempted to send message to {session_id} but no active connection found."
+                f"No active WebSocket for session_id={session_id} — message dropped."
             )
+            return
+
+        try:
+            await asyncio.wait_for(websocket.send_json(message), timeout=5.0)
+            logger.info(f"Message delivered to session_id={session_id}: {message}")
+        except Exception as e:
+            logger.error(
+                f"Failed to deliver message to session_id={session_id}: {e}"
+            )
+            await self.disconnect(session_id)
 
 
 ws_manager = ConnectionManager()

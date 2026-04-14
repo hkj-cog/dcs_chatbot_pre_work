@@ -6,5 +6,7 @@ from .guard_rail import (
     DateTimeInjectorGuardRail,
     JailbreakGuardRail,
     ProfanityGuardRail,
+    OutputGuardRail,
+    ToolCallGuardRail,
 )
 from .vertex import VertexAIAgent
