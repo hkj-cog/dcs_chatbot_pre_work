@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
+    phoenix_collector_endpoint: str = Field(default="http://localhost:6006", validation_alias="PHOENIX_COLLECTOR_ENDPOINT")
+
+
 
 @lru_cache
 def get_settings() -> Settings:

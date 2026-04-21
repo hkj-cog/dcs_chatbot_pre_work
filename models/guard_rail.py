@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 from google.cloud import language_v1 
 from abc import ABC, abstractmethod
 

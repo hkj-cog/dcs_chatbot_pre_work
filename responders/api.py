@@ -10,7 +10,7 @@ from libs.ws_connection_manager import ws_manager
 
 router = APIRouter()
 
-
+# TODO: Refactor to use manage wesocket connection better 
 @router.websocket("/receive/{session_id}")
 async def chat_socket(
     websocket: WebSocket,

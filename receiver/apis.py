@@ -1,12 +1,16 @@
-import asyncio
+import asyncio 
+from datetime import datetime
 from typing import Annotated, Optional
 from fastapi import APIRouter, Header, Response
 from fastapi.responses import JSONResponse
 from google.genai import types
-
+from google.adk.errors.session_not_found_error import SessionNotFoundError
+from opentelemetry import trace
+from openinference.instrumentation import using_attributes
 from agent.vertex_agent import runner, session_service
 from libs.logger import logger
 from libs.pubsub import send_message_to_pubsub
+from monitoring.session_processor import otel_context
 
 from .models import ChatRequest
 
@@ -18,33 +22,40 @@ async def test_endpoint():
     return {"message": "Success"}
 
 
-async def handle_user_query(user_id: str, session_id: str, user_input: str):
+async def handle_user_query(user_id: str, session_id: str, user_input: str, ctx ):
     response: dict[str, str] = {}
     final_content = ""
+    token = otel_context.attach(ctx)
     try:
-        async for event in runner.run_async(
-            user_id=user_id,  # Dynamic from header
-            session_id=session_id,  # Dynamic from header
-            new_message=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=user_input)],  # Dynamic from body
-            ),
-        ):
-            if event.is_final_response() and event.content:
-                parts = event.content.parts
-                if parts:
-                    text_out = getattr(parts[0], "text", None)
-                    if isinstance(text_out, str):
-                        print(f"Final Output: [{event.author}] {text_out}")
-                        final_content += text_out
+        with using_attributes(session_id=str(session_id), user_id=user_id):
+            async for event in runner.run_async(
+                user_id=user_id,  # Dynamic from header
+                session_id=session_id,  # Dynamic from header
+                new_message=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=user_input)],  # Dynamic from body
+                ),
+            ):
+                if event.is_final_response() and event.content:
+                    parts = event.content.parts
+                    if parts:
+                        text_out = getattr(parts[0], "text", None)
+                        if isinstance(text_out, str):
+                            logger.info(f"Final Output: [{event.author}] {text_out}")
+                            final_content += text_out
+                        else:
+                            final_content += str(event.content)
                     else:
                         final_content += str(event.content)
-                else:
-                    final_content += str(event.content)
-            elif getattr(event, "error_code", None):
-                final_content = "error"
+                elif getattr(event, "error_code", None):
+                    final_content = "error"
         await send_message_to_pubsub(
             {"sender": "system", "content": final_content}, session_id=session_id
+        )
+    except SessionNotFoundError as sne:
+        logger.error(f"Session not found for session_id={session_id}: {sne}")
+        await send_message_to_pubsub(
+            {"sender": "system", "content": "session not found"}, session_id=session_id
         )
     except Exception as e:
         logger.error(f"Error processing user query: {e}")
@@ -52,6 +63,8 @@ async def handle_user_query(user_id: str, session_id: str, user_input: str):
             {"sender": "system", "content": "system_error"}, session_id=session_id
         )
         raise e
+    finally:
+        otel_context.detach(token)
 
 
 @router.post("/chat")
@@ -59,7 +72,12 @@ async def save_chat(
     request: ChatRequest,
     user_id: Annotated[str, Header(alias="X-User-ID")],
     session_id: Annotated[str | None, Header(alias="x-session-id")] = None,
+    
 ):
+
+    # TODO: add PII redaction here
+    current_span = trace.get_current_span()
+
     if session_id:
         session = await session_service.get_session(
             session_id=session_id,
@@ -72,12 +90,26 @@ async def save_chat(
         session = await session_service.create_session(
             app_name="adk-chatbot",  # This should match the app_name used in your Agent definition
             user_id=user_id,
+            state={"metadata": {"created_on": datetime.now().isoformat}}  # Optional: add any initial state or metadatabbbb
             # app_name should be defined globally or passed in
         )
         session_id = session.id
+    
+    if session_id:
+        current_span.set_attribute("session_id", str(session_id))
+        current_span.set_attribute("user_id", user_id)
 
-    _ = asyncio.create_task(handle_user_query(user_id, session_id, request.user_input))
+    with using_attributes(session_id=str(session_id), user_id=user_id):
+            
+        # Every log from here on (custom or automated) will have the ID
+        logger.info(f"Received request for session {session_id}")
 
-    return JSONResponse(
-        content={"reply": "accepted"}, headers={"x-session-id": str(session_id)}
-    )
+        # 3. Capture the 'primed' context to pass to the background task
+        # This context now contains the session_id baggage
+        ctx = otel_context.get_current()
+
+        _ = asyncio.create_task(handle_user_query(user_id, session_id, request.user_input, ctx))
+
+        return JSONResponse(
+            content={"reply": "accepted"}, headers={"x-session-id": str(session_id)}
+        )

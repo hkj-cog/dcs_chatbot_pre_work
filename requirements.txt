@@ -23,12 +23,12 @@ fastapi-cli==0.0.24
 fastapi-cloud-cli==0.15.0
 fastar==0.9.0
 frozenlist==1.8.0
-google-adk==1.28.0
+google-adk==1.31.0
 google-api-core==2.30.0
 google-api-python-client==2.193.0
 google-auth==2.49.1
 google-auth-httplib2==0.3.0
-google-cloud-aiplatform==1.143.0
+google-cloud-aiplatform==1.148.0
 google-cloud-appengine-logging==1.8.0
 google-cloud-audit-log==0.4.0
 google-cloud-bigquery==3.40.1
@@ -48,7 +48,7 @@ google-cloud-speech==2.38.0
 google-cloud-storage==3.10.1
 google-cloud-trace==1.19.0
 google-crc32c==1.8.0
-google-genai==1.68.0
+google-genai==1.72.0
 google-resumable-media==2.8.0
 googleapis-common-protos==1.73.1
 graphviz==0.21
@@ -84,6 +84,9 @@ opentelemetry-proto==1.38.0
 opentelemetry-resourcedetector-gcp==1.11.0a0
 opentelemetry-sdk==1.38.0
 opentelemetry-semantic-conventions==0.59b0
+opentelemetry-instrumentation==0.59b0
+openinference-instrumentation==0.1.46
+opentelemetry-instrumentation-fastapi==0.59b0
 packaging==26.0
 propcache==0.4.1
 proto-plus==1.27.2

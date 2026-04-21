@@ -40,33 +40,24 @@ TOPIC_PATH = publisher.topic_path(settings.project_id, settings.queue_topic)
 
 
 async def send_message_to_pubsub(message: dict[str, str], session_id: str):
-    """
-    Publishes a message to GCP Pub/Sub with an Ordering Key.
-    """
     try:
         logger.info(
             f"Preparing to publish message to Pub/Sub: {message} with session_id={session_id}, topic={TOPIC_PATH}"
         )
         data = json.dumps(message).encode("utf-8")
-
-        loop = asyncio.get_event_loop()
-
         custom_retry = retries.Retry(
-            initial=0.1,  # seconds
-            maximum=60.0,  # total time to keep retrying
+            initial=0.1,
+            maximum=60.0,
             multiplier=1.3,
         )
-
         publish_future: Future = publisher.publish(
             TOPIC_PATH,
             data,
-            session_id=session_id,  # Also sent as an attribute for easy filtering
+            session_id=session_id,
             retry=custom_retry,
         )
-
-        # 4. Wait for the result without blocking the event loop
-        result = await loop.run_in_executor(None, publish_future.result)
-
+        # asyncio.to_thread spins a fresh thread — not affected by eval's executor usage
+        result = await asyncio.to_thread(publish_future.result)
         logger.info(
             f"Message published to {TOPIC_PATH} with session_id={session_id}, message_id={result}"
         )
