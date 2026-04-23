@@ -67,13 +67,6 @@ class VertexAIAgent:
         self._in_memory_session_service: InMemorySessionService = (
             InMemorySessionService()
         )
-        # tracer_provider = register(
-        #     project_name="dcs-chat",
-        #     batch=False,  # Use sync export because Agent Engine pauses CPU after requests
-        #     set_global_tracer_provider=False,  # Required: avoids conflict with Agent Engine's global provider
-        # )
-        # GoogleADKInstrumentor().instrument(tracer_provider=tracer_provider)
-
     
     def __trigger_eval(self, evaluator: GeminiADKEvaluator | None):
         if evaluator is None:

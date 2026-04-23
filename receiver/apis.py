@@ -6,14 +6,12 @@ from fastapi.responses import JSONResponse
 from google.genai import types
 from google.adk.errors.session_not_found_error import SessionNotFoundError
 from opentelemetry import trace
+from opentelemetry import context as otel_context
 from openinference.instrumentation import using_attributes
 from agent.vertex_agent import runner, session_service
 from libs.logger import logger
 from libs.pubsub import send_message_to_pubsub
-from monitoring.session_processor import otel_context
-
 from .models import ChatRequest
-
 router = APIRouter()
 
 

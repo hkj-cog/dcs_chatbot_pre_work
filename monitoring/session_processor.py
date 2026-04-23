@@ -1,10 +1,5 @@
-from openinference.instrumentation import (
-    get_attributes_from_context,
-)
-from opentelemetry.sdk._logs import (
-    LogData,
-    LogRecordProcessor,
-)
+from openinference.instrumentation import get_attributes_from_context
+from opentelemetry.sdk._logs import LogData, LogRecordProcessor
 
 class GlobalSessionIdProcessor(LogRecordProcessor):
     def on_emit(self, log_data: LogData):

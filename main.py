@@ -1,12 +1,15 @@
 import asyncio
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from openinference.instrumentation.google_adk import GoogleADKInstrumentor
 from opentelemetry import trace, _logs
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from phoenix.otel import register
 from libs.config import Settings
+from libs.phoenix_logger import SpanLogHandler, tracer_provider
 from libs.redis_manager import redis_manager
 from receiver.apis import router as save_router
 from responders.api import router as ws_router
@@ -17,44 +20,18 @@ from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+
 settings = Settings()
 
-# TODO test
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-#     await redis_manager.init_pool()
-#
-#     # Pass the function 'process_redis_message' as the callback
-#     sub_task = asyncio.create_task(
-#         redis_manager.start_subscriber("user_*", process_redis_message)
-#     )
-#
-#     yield
-#
-#     sub_task.cancel()
-#     await redis_manager.close_pool()
-
-
-
-# app = FastAPI(lifespan=lifespan)
-tracer_provider = TracerProvider()
-trace.set_tracer_provider(tracer_provider)
-
-# 2. GCP Plugin: Add the Exporter
-# This tells the Provider: "Whenever you finish a span, send it to Google Cloud Trace."
-tracer_provider.add_span_processor(
-    BatchSpanProcessor(CloudTraceSpanExporter())
+tracer_provider = register(
+    project_name="dcs-chat",
+    batch=False,  # Use sync export because Agent Engine pauses CPU after requests
+    set_global_tracer_provider=False,  # Required: avoids conflict with Agent Engine's global provider
 )
-
-GoogleADKInstrumentor().instrument(
-    tracer_provider=trace.get_tracer_provider(),
-    logger_provider=_logs.get_logger_provider()
-)
+GoogleADKInstrumentor().instrument(tracer_provider=tracer_provider)
 
 app = FastAPI()
 
-# Instrument FastAPI to capture traces
-FastAPIInstrumentor.instrument_app(app)
 
 raw_origins = settings.allowed_origins
 

@@ -4,7 +4,9 @@ import time
 from opentelemetry.exporter.cloud_logging import CloudLoggingExporter
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk.resources import Resource
 from monitoring.session_processor import GlobalSessionIdProcessor 
+from opentelemetry import _logs # Add this import
 
 def setup_app_logger(name: str = "dcs_chatbot") -> logging.Logger:
     logger = logging.getLogger(name)
@@ -12,31 +14,30 @@ def setup_app_logger(name: str = "dcs_chatbot") -> logging.Logger:
     if not logger.handlers:
         logger.setLevel(logging.INFO)
         
-        # 1. Standard Console Output
+        # 1. Standard Console
         handler = logging.StreamHandler(sys.stdout)
-        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-        handler.setFormatter(formatter)
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
         logger.addHandler(handler)
 
-        # 2. Initialize the OTel Logger Provider
-        logger_provider = LoggerProvider()
+        # 2. Setup OTel Provider
+        resource = Resource.create({"service.name": name})
+        logger_provider = LoggerProvider(resource=resource)
         
-        # --- ENRICHMENT FIRST ---
-        # This adds the session_id to the log record attributes
+        # Add your processors
         logger_provider.add_log_record_processor(GlobalSessionIdProcessor())
-
-        # --- EXPORT SECOND ---
-        # This takes the enriched record and batches it for GCP
-        exporter = CloudLoggingExporter()
+        
+        # Explicitly set log_id to avoid the "temp" name issue we discussed
+        exporter = CloudLoggingExporter(default_log_name=name)
         logger_provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
 
-        # logger.set_logger_provider(logger_provider)
+        # --- CRITICAL FIX ---
+        # This makes your custom provider the "official" one for the whole app
+        _logs.set_logger_provider(logger_provider)
 
-        # 3. Create the OTel Bridge Handler
-        # This "bridges" standard logging.info() calls into the OTel pipeline
+        # 3. Bridge
         otel_handler = LoggingHandler(level=logging.INFO, logger_provider=logger_provider)
         logger.addHandler(otel_handler)
 
     return logger
 
-logger = setup_app_logger()
+logger = setup_app_logger("dcs_chatbot")
