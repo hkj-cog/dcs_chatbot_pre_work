@@ -1,32 +1,48 @@
+# WebSocket connection manager with Redis-backed cross-instance presence tracking
 import asyncio
 from fastapi import WebSocket
 
+from libs.config import get_settings
 from libs.logger import logger
 from libs.redis_manager import redis_manager
-
-_SESSION_TTL_SECONDS = 60 * 100
 
 
 class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: dict[str, WebSocket] = {}
-        self.redis = redis_manager.get_client()
 
+    # Accepts a WebSocket connection and registers it with Redis presence tracking
     async def connect(self, session_id: str, websocket: WebSocket) -> None:
+        ttl = get_settings().ws_session_ttl_seconds
+        redis = redis_manager.get_client()
+        try:
+            await redis.set(f"status:{session_id}", "online", ex=ttl)
+        except Exception as e:
+            logger.error(
+                f"Redis unavailable — rejecting WebSocket for session_id={session_id}: {e}"
+            )
+            await websocket.close(code=1011)
+            return
+        finally:
+            await redis.aclose()
+
         await websocket.accept()
         self.active_connections[session_id] = websocket
-
-        redis_key = f"status:{session_id}"
-        await self.redis.set(redis_key, "online", ex=_SESSION_TTL_SECONDS)
-
         logger.info(f"WebSocket connected — session_id={session_id}")
 
+    # Removes the WebSocket from the local map and clears the Redis presence key
     async def disconnect(self, session_id: str) -> None:
         self.active_connections.pop(session_id, None)
-        redis_key = f"status:{session_id}"
-        await self.redis.delete(redis_key)
+
+        redis = redis_manager.get_client()
+        try:
+            await redis.delete(f"status:{session_id}")
+        finally:
+            await redis.aclose()
+
         logger.info(f"WebSocket disconnected — session_id={session_id}")
 
+    # Sends a JSON message to the WebSocket for the given session; disconnects on error
     async def send_personal_message(
         self, message: dict, session_id: str
     ) -> None:
@@ -39,7 +55,11 @@ class ConnectionManager:
 
         try:
             await asyncio.wait_for(websocket.send_json(message), timeout=5.0)
-            logger.info(f"Message delivered to session_id={session_id}: {message}")
+            logger.info(
+                f"Message delivered to session_id={session_id} "
+                f"content_length={len(str(message.get('content', '')))} "
+                f"refs={len(message.get('references', []))}"
+            )
         except Exception as e:
             logger.error(
                 f"Failed to deliver message to session_id={session_id}: {e}"

@@ -127,8 +127,15 @@ venv.bak/
 *.env
 
 # Local secrets or config
-secrets.*
+# secrets.*
 *.local
+
+# Redis local persistence
+dump.rdb
+
+# Local dev tooling artifacts
+.benchmarks/
+.claude/
 
 # OS / Editor clutter
 .DS_Store

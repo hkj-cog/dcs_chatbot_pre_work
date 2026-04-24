@@ -1,1 +1,1 @@
-from .vertex_agent import runner, session_service, memory_service
+# See vertex_agent.py — runner and session_service are built at startup via app.state.

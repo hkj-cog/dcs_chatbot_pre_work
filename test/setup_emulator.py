@@ -1,3 +1,4 @@
+# Helper script to set up local Pub/Sub emulator with push subscription to localhost:8000
 import os
 from google.cloud import pubsub_v1
 from google.pubsub_v1.types import PushConfig, DeadLetterPolicy, RetryPolicy
@@ -6,13 +7,15 @@ from google.protobuf.duration_pb2 import Duration
 # 1. Environment Configuration
 os.environ["PUBSUB_EMULATOR_HOST"] = "127.0.0.1:8406"
 
-PROJECT_ID = "cog01hygeb83z4tne1xxrhezf82e2"
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+if not PROJECT_ID:
+    raise RuntimeError("GOOGLE_CLOUD_PROJECT environment variable is not set.")
 TOPIC_ID = "adk_chat_messages"
 SUB_ID = "adk_chat_messages-sub"
 # Dead Letter Topic (required to enforce max attempts)
 DLT_TOPIC_ID = "adk_chat_messages-dead-letter"
 
-FASTAPI_ENDPOINT = "http://localhost:8000/webhook/chat"
+FASTAPI_ENDPOINT = "http://localhost:8000/v1/webhook/chat"
 
 publisher = pubsub_v1.PublisherClient()
 subscriber = pubsub_v1.SubscriberClient()

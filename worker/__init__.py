@@ -1,1 +1,2 @@
-from .api import pubsub_router, process_redis_message
+# Worker package re-export
+from .api import router

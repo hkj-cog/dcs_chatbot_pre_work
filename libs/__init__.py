@@ -1,3 +1,4 @@
+# Shared libs package — re-exports logger for convenience
 from .logger import logger
 from .redis_manager import redis_manager
 from .config import get_settings, Settings

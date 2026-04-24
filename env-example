@@ -1,18 +1,144 @@
+# ── GCP Core ──────────────────────────────────────────────────────────────────
 GOOGLE_CLOUD_PROJECT=your-gcp-project-id
-GOOGLE_CLOUD_LOCATION=your-gcp-project-location
+GOOGLE_CLOUD_LOCATION=australia-southeast1
+
+# Required by the Google GenAI SDK to route requests through Vertex AI.
+# Not a pydantic Settings field — read directly from the environment.
 GOOGLE_GENAI_USE_VERTEXAI=1
 
-MODEL_ID=gemini-model-id
-DATASTORE_ID=vertex-ai-search-datastore-id
+# ── Agent / Model ─────────────────────────────────────────────────────────────
+MODEL_ID=gemini-2.5-flash
 
-GUARDRAILS_API_KEY=your-guardrails-api-key
+# Full Vertex AI Search datastore resource path.
+# projects/<PROJECT>/locations/<LOCATION>/collections/default_collection/dataStores/<DATASTORE_ID>
+# Leave empty to run without a datastore (guardrail testing only — not suitable for production).
+DATASTORE_ID=projects/your-gcp-project-id/locations/global/collections/default_collection/dataStores/your-datastore-id
 
-PII_DATA_TYPES=["EMAIL_ADDRESS","PHONE_NUMBER","FIRST_NAME","LAST_NAME","PASSPORT","AUSTRALIA_TAX_FILE_NUMBER","AUSTRALIA_MEDICARE_NUMBER","AUSTRALIA_DRIVERS_LICENSE_NUMBER"]
+# ── PII / DLP ─────────────────────────────────────────────────────────────────
+# JSON list of Google Cloud DLP info-type names to detect and redact.
+# Note: AUSTRALIA_ABN_NUMBER is not available in australia-southeast1 — ABN redaction
+# is handled locally via regex in libs/dlp.py instead.
+# Full reference: https://cloud.google.com/dlp/docs/infotypes-reference
+PII_DATA_TYPES=["EMAIL_ADDRESS","PHONE_NUMBER","FIRST_NAME","LAST_NAME","PASSPORT","AUSTRALIA_TAX_FILE_NUMBER","AUSTRALIA_MEDICARE_NUMBER","AUSTRALIA_DRIVERS_LICENSE_NUMBER","DATE_OF_BIRTH"]
 
+# ── Ban Words ─────────────────────────────────────────────────────────────────
+# English cross-language base lists. Applied to ALL messages regardless of detected
+# language — including when language detection fails or confidence is below threshold.
+# Inflection expansion is pre-computed at startup (harass → harassing, harassed, …).
+#
+# Three tiers:
+#   hard  → always blocks (_IMPROPER_BLOCK_MSG)
+#   soft  → blocks with a softer message (_SOFT_BAN_BLOCK_MSG)
+#   warn  → logs at INFO and allows through (monitoring only)
+#
+# Context allowlist: operator-configured regex patterns; when matched, effective
+# tier drops one level (hard→soft, soft→warn, warn→allow). Hard tier is never
+# reduced. Use for legal citations or legislation quotes where banned words appear.
+BANNED_WORDS=[]
+BANNED_WORDS_SOFT=[]
+BANNED_WORDS_WARN=[]
+BAN_WORD_CONTEXT_ALLOWLIST=[]
+
+# Per-language banned word lists. Keys are BCP-47 language codes (e.g. "es", "vi", "zh-CN").
+# Applied ONLY when the user's detected language matches the key, at or above the
+# confidence threshold. Merged with the English base lists above at runtime.
+# Inflection expansion is NOT applied — English suffix rules do not generalise across languages.
+# Add entries after governance approval per language.
+# Both base (English) and per-language lists serve different purposes — see docs.
+#
+# BANNED_WORDS_BY_LANGUAGE   → hard-block terms per language
+# BANNED_WORDS_SOFT_BY_LANGUAGE → soft-block terms per language
+# BANNED_WORDS_WARN_BY_LANGUAGE → warn/monitor terms per language
+#
+# Example:
+# BANNED_WORDS_BY_LANGUAGE={"vi": ["từ_cấm_1", "từ_cấm_2"], "es": ["palabra_prohibida"]}
+BANNED_WORDS_BY_LANGUAGE={}
+BANNED_WORDS_SOFT_BY_LANGUAGE={}
+BANNED_WORDS_WARN_BY_LANGUAGE={}
+
+# Fuzzy-match threshold (0–100) for ban-word and tool-call guardrails.
+# Higher = stricter match required; lower = catches more misspellings.
+BAN_WORD_FUZZY_THRESHOLD=85
+
+# ── Tool Call Guard ───────────────────────────────────────────────────────────
+# JSON list of query terms blocked in ToolCallGuardRail (fuzzy-matched).
+BLOCKED_QUERY_TERMS=["financial records", "personal employee data"]
+
+# ── Rate Limiting ─────────────────────────────────────────────────────────────
+# Maximum requests per minute per user_id (sliding-window Redis counter).
+RATE_LIMIT_PER_MINUTE=60
+
+# ── Session Threat Tracking ───────────────────────────────────────────────────
+# Cumulative guardrail trigger events within SESSION_THREAT_WINDOW_SECONDS before
+# a CRITICAL escalation alert is emitted to Cloud Logging / SIEM.
+SESSION_THREAT_THRESHOLD=5
+SESSION_THREAT_WINDOW_SECONDS=3600
+
+# ── Input / Output Limits ─────────────────────────────────────────────────────
+# Must stay consistent between the HTTP boundary check and InputLengthGuardRail.
+MAX_INPUT_CHARS=4000
+MAX_OUTPUT_CHARS=8000
+
+# ── Language Detection ────────────────────────────────────────────────────────
+# Minimum detection confidence (0.0–1.0) before LanguageCheckGuardRail acts.
+# Below this threshold the detection is treated as uncertain — user_language is not
+# stored, auto-translation is not triggered, and LanguageCheckGuardRail enforces
+# service-language (English) output only.
+LANGUAGE_DETECTION_CONFIDENCE_THRESHOLD=0.80
+
+# Languages the service is always permitted to respond in, regardless of user
+# input language. Defaults to English — the service primary language.
+# Override to add additional supported languages: SUPPORTED_OUTPUT_LANGUAGES=["en","zh-CN"]
+SUPPORTED_OUTPUT_LANGUAGES=["en"]
+
+# Governance-approved input languages the service can actively serve.
+# A non-English language listed here receives:
+#   • Auto-translation of the English LLM response into the user's language
+#   • LanguageCheckGuardRail validates output is in the user's language
+# Languages NOT listed receive an English-only response.
+# Extend only after governance approval, safety testing in the target language,
+# Cloud NLP moderation validation, and language-specific ban word configuration.
+# Example: SUPPORTED_INPUT_LANGUAGES=["en","es","zh-CN"]
+SUPPORTED_INPUT_LANGUAGES=["en"]
+
+# ── Redis ─────────────────────────────────────────────────────────────────────
+# Accepts plain host:port (redis:// prefix is added automatically) or a full URL.
 REDIS_HOST=127.0.0.1:6379
 
+# ── Pub/Sub ───────────────────────────────────────────────────────────────────
 QUEUE_TOPIC=adk_chat_messages
 
+# Set to target the local Pub/Sub emulator during development.
+# PUBSUB_EMULATOR_HOST also acts as the local-dev signal: when set, the app uses
+# InMemorySessionService instead of VertexAiSessionService, and the Vertex AI Search
+# tool is optional (DATASTORE_ID may be left empty for guardrail-only testing).
+# Leave empty (or remove) when deploying to real GCP.
 PUBSUB_EMULATOR_HOST=127.0.0.1:8406
 
-ALLOWED_ORIGINS=*
+# ── WebSocket ─────────────────────────────────────────────────────────────────
+# Redis TTL (seconds) for WebSocket session status keys.
+# Must be long enough to cover the full pipeline round-trip for slow queries.
+WS_SESSION_TTL_SECONDS=6000
+
+# ── HTTP / CORS ───────────────────────────────────────────────────────────────
+# Comma-separated list of allowed origins. Wildcards ("*") are REJECTED at
+# startup because allow_credentials=True is incompatible with a wildcard origin
+# (CORS spec violation). Always set explicit origins.
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000
+
+# ── Observability (Arize Phoenix) ─────────────────────────────────────────────
+# OTLP HTTP endpoint for Arize Phoenix LLM pipeline tracing.
+# libs/phoenix_tracer.py is currently a no-op stub — setting this will log a
+# startup notice but not emit spans until the OTel implementation is restored.
+# See libs/phoenix_tracer.py for full activation steps.
+# Example: PHOENIX_ENDPOINT=http://localhost:6006/v1/traces
+PHOENIX_ENDPOINT=
+
+# ── Guardrail Kill Switches ───────────────────────────────────────────────────
+# JSON list of guardrail class names to disable at startup (emergency use only).
+# Members of NON_DISABLEABLE_GUARDRAILS (SecretsInputGuardRail, SecretsOutputGuardRail,
+# JailbreakGuardRail, DlpInputGuardRail, DlpOutputGuardRail, GroundednessChecker,
+# SecretsInputPreCheckGuardRail) are silently ignored — they cannot be disabled.
+# Every effective entry emits a CRITICAL log at startup.
+# Example: DISABLED_GUARDRAILS=["CitizenReadabilityOutputGuardRail"]
+DISABLED_GUARDRAILS=[]

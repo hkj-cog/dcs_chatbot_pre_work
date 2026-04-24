@@ -1,174 +1,115 @@
+# HTTP chat endpoint (/v1/conversation/chat) — rate-limiting, session init, and pipeline dispatch
 import asyncio
-import json
-from dataclasses import asdict, dataclass
-from typing import Annotated, List, Optional
+import time
+import uuid
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from google.genai import types
 
-from agent.scoring import ConfidenceScorer
-from agent.translate import Translator
-from agent.utils import get_gcp_project_id
-from agent.vertex_agent import runner, session_service
 from libs.config import get_settings
-from libs.dlp import GoogleDlp          # ← fix: use production-grade DLP from libs/
 from libs.logger import logger
-from libs.pubsub import send_message_to_pubsub
+from libs.redis_manager import redis_manager
+from libs.validation import SESSION_ID_RE, USER_ID_RE
+from services.chat_pipeline import PipelineContext
 from .models import ChatRequest
 
 router = APIRouter()
 
 _settings = get_settings()
+_live_tasks: set[asyncio.Task] = set()
 
-_dlp = GoogleDlp(
-    project=get_gcp_project_id() or _settings.project_id,
-    info_types=_settings.pii_data_types,
-)
 
-_scorer = ConfidenceScorer(
-    llm=_settings.model_id,
-    location=_settings.google_cloud_location,
-)
+async def _check_rate_limit(user_id: str) -> None:
+    """
+    Sliding-window rate limiter backed by Redis (ZSET per user_id).
+    Raises HTTP 429 if the configured limit is exceeded.
+    Fail-open: Redis unavailable allows the request through.
+    """
+    limit = _settings.rate_limit_per_minute
+    window = 60
+    now = time.time()
+    key = f"rate_limit:{user_id}"
+    client = redis_manager.get_client()
+    try:
+        async with client.pipeline() as pipe:
+            pipe.zremrangebyscore(key, 0, now - window)
+            pipe.zadd(key, {str(now): now})
+            pipe.zcard(key)
+            pipe.expire(key, window)
+            results = await pipe.execute()
+        count = results[2]
+        if count > limit:
+            logger.warning(f"[RateLimiter] user={user_id!r} exceeded {limit} req/min (count={count})")
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded. Maximum {limit} requests per minute.",
+                headers={"Retry-After": "60"},
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning(f"[RateLimiter] Redis unavailable (fail-open): {exc}")
+    finally:
+        await client.aclose()
 
-@dataclass
-class Reference:
-    chunk: str
-    url: str
-    title: str
 
+# Smoke-test endpoint to confirm the router is reachable
 @router.get("/test")
 async def test_endpoint():
     return {"message": "Success"}
 
-async def handle_user_query(
-    user_id: str,
-    session_id: str,
-    user_input: str,
-    translate: bool = False,
-) -> None:
-    final_content: str = ""
-    references: List[Reference] = []
-    score: Optional[str] = None
 
-    try:
-        sanitized_input = _dlp.invoke(user_input)
-
-        async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=sanitized_input)],
-            ),
-        ):
-            if event.is_final_response() and event.content:
-                parts = event.content.parts
-                if parts:
-                    text_out = getattr(parts[0], "text", None)
-                    if isinstance(text_out, str):
-                        final_content = text_out.strip()
-                        logger.info(
-                            f"Final agent output [{event.author}]: {final_content[:80]}…"
-                        )
-                    else:
-                        final_content = str(event.content)
-                else:
-                    final_content = str(event.content)
-                if (
-                    event.grounding_metadata
-                    and event.grounding_metadata.grounding_chunks
-                ):
-                    for chunk in event.grounding_metadata.grounding_chunks:
-                        ctx = chunk.retrieved_context
-                        references.append(
-                            Reference(
-                                chunk=ctx.text or "",
-                                url=ctx.uri or "",
-                                title=ctx.title or "",
-                            )
-                        )
-
-            elif getattr(event, "error_code", None):
-                logger.error(f"Agent returned error_code: {event.error_code}")
-                final_content = "error"
-
-        if translate and final_content and final_content != "error":
-            is_different, translated = Translator.translate(
-                user_input, final_content
-            )
-            if is_different:
-                final_content = translated
-                # Also translate reference titles
-                references = [
-                    Reference(
-                        chunk=r.chunk,
-                        url=r.url,
-                        title=Translator.translate(user_input, r.title)[1]
-                        if r.title
-                        else "",
-                    )
-                    for r in references
-                ]
-
-        if references and final_content not in ("", "error"):
-            try:
-                score = _scorer.invoke(
-                    question=sanitized_input,
-                    answer=final_content,
-                    context=", ".join(r.chunk for r in references),
-                )
-            except Exception as score_err:
-                logger.warning(f"Confidence scoring failed (non-fatal): {score_err}")
-                score = None
-
-        payload = {
-            "sender": "system",
-            "content": final_content,
-            "references": [asdict(r) for r in references],
-            "score": score,
-        }
-        await send_message_to_pubsub(payload, session_id=session_id)
-
-    except Exception as e:
-        logger.error(f"Error processing user query for session_id={session_id}: {e}")
-        await send_message_to_pubsub(
-            {
-                "sender": "system",
-                "content": "system_error",
-                "references": [],
-                "score": None,
-            },
-            session_id=session_id,
-        )
-        raise
-
-
+# HTTP entry point for chat: validates headers, enforces rate limit, resolves session, dispatches pipeline
 @router.post("/chat")
 async def save_chat(
-    request: ChatRequest,
+    request: Request,
+    body: ChatRequest,
     user_id: Annotated[str, Header(alias="X-User-ID")],
-    session_id: Annotated[str | None, Header(alias="x-session-id")] = None,
+    session_id: Annotated[Optional[str], Header(alias="x-session-id")] = None,
 ) -> JSONResponse:
+    if not USER_ID_RE.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid X-User-ID format")
+    if session_id and not SESSION_ID_RE.match(session_id):
+        raise HTTPException(status_code=400, detail="Invalid x-session-id format")
+
+    await _check_rate_limit(user_id)
+
+    session_service = request.app.state.session_service
 
     if session_id:
-        await session_service.get_session(
+        existing = await session_service.get_session(
             session_id=session_id,
-            app_name="adk-chatbot",
+            app_name="adk_chatbot",
             user_id=user_id,
         )
+        if existing is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Session not found. Please start a new session."},
+            )
     else:
         session = await session_service.create_session(
-            app_name="adk-chatbot",
+            app_name="adk_chatbot",
             user_id=user_id,
         )
         session_id = session.id
 
-    asyncio.create_task(
-        handle_user_query(user_id, session_id, request.user_input)
+    request_id = str(uuid.uuid4())
+
+    ctx = PipelineContext(
+        user_id=user_id,
+        session_id=session_id,
+        user_input=body.user_input,
+        translate=body.translate,
+        request_id=request_id,
     )
 
+    task = asyncio.create_task(request.app.state.pipeline.run(ctx))
+    _live_tasks.add(task)
+    task.add_done_callback(_live_tasks.discard)
+
     return JSONResponse(
-        content={"reply": "accepted"},
+        content={"reply": "accepted", "request_id": request_id},
         headers={"x-session-id": str(session_id)},
     )

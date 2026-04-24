@@ -1,7 +1,8 @@
+# Google Cloud Pub/Sub publisher with retry/backoff and local emulator support
 import asyncio
 import json
+import os
 
-from google.api_core import client_options
 from google.api_core import retry as retries
 from google.cloud import pubsub_v1
 from google.cloud.pubsub_v1.publisher.futures import Future
@@ -16,18 +17,13 @@ _emulator_host = settings.pubsub_emulator_host
 
 
 def create_publisher_client() -> pubsub_v1.PublisherClient:
-    """
-    Factory to create a Pub/Sub publisher client.
-    Automatically targets the local emulator when PUBSUB_EMULATOR_HOST is set.
-    """
+    """Creates a Pub/Sub publisher client, targeting the local emulator when PUBSUB_EMULATOR_HOST is set."""
     if _emulator_host:
+        # Must set the env var so the SDK uses an insecure gRPC channel (emulator has no TLS).
+        os.environ["PUBSUB_EMULATOR_HOST"] = _emulator_host
         logger.info(f"Using Pub/Sub Emulator at {_emulator_host}")
-        options = client_options.ClientOptions(api_endpoint=_emulator_host)
-        return pubsub_v1.PublisherClient(
-            client_options=options,
-            credentials=None,
-        )
-        
+        return pubsub_v1.PublisherClient()
+
     batch_settings = pubsub_v1.types.BatchSettings(
         max_bytes=1024 * 1024,  # 1 MB
         max_latency=0.01,       # 10 ms
@@ -36,26 +32,28 @@ def create_publisher_client() -> pubsub_v1.PublisherClient:
     return pubsub_v1.PublisherClient(batch_settings=batch_settings)
 
 
-publisher = create_publisher_client()
-TOPIC_PATH = publisher.topic_path(_project_id, _topic)
+# Lazy init — avoids opening a GCP connection at import time.
+_publisher = None
+_topic_path = None
+
+
+# Lazy singleton: creates the publisher client and topic path on first call
+def _get_publisher():
+    global _publisher, _topic_path
+    if _publisher is None:
+        _publisher = create_publisher_client()
+        _topic_path = _publisher.topic_path(_project_id, _topic)
+    return _publisher, _topic_path
 
 
 async def send_message_to_pubsub(message: dict[str, str], session_id: str) -> None:
-    """
-    Publishes a message to GCP Pub/Sub.
-
-    The session_id is attached as a message attribute so downstream push
-    subscriptions (worker/api.py) can route the message to the correct
-    WebSocket session without decoding the body.
-
-    Args:
-        message:    Payload dict — will be JSON-encoded and base64-wrapped by the SDK.
-        session_id: Session identifier; forwarded as a Pub/Sub message attribute.
-    """
+    """Publishes `message` to Pub/Sub. session_id is attached as a message attribute for routing."""
+    pub, topic_path = _get_publisher()
     try:
         logger.info(
-            f"Publishing to Pub/Sub: topic={TOPIC_PATH} "
-            f"session_id={session_id} payload={message}"
+            f"Publishing to Pub/Sub: topic={topic_path} session_id={session_id} "
+            f"content_length={len(str(message.get('content', '')))} "
+            f"score={message.get('score')} refs={len(message.get('references', []))}"
         )
         data = json.dumps(message).encode("utf-8")
 
@@ -65,19 +63,20 @@ async def send_message_to_pubsub(message: dict[str, str], session_id: str) -> No
             multiplier=1.3,
         )
 
-        publish_future: Future = publisher.publish(
-            TOPIC_PATH,
+        publish_future: Future = pub.publish(
+            topic_path,
             data,
             session_id=session_id,  # passed as a message attribute for filtering
             retry=custom_retry,
         )
 
-        # Resolve the future without blocking the asyncio event loop
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, publish_future.result)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None, lambda: publish_future.result(timeout=30)
+        )
 
         logger.info(
-            f"Published to {TOPIC_PATH} — "
+            f"Published to {topic_path} — "
             f"session_id={session_id} message_id={result}"
         )
     except Exception as e:
