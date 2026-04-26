@@ -53,6 +53,7 @@ class ChatPipeline:
         self._runner = runner
         self._session_service = session_service
         self._dlp = dlp
+        self._pipeline_timeout = s.pipeline_timeout_seconds
 
         self._scorer = ConfidenceScorer(llm=JUDGE_MODEL, location=location)
         self._groundedness = GroundednessChecker(model_id=JUDGE_MODEL, location=location)
@@ -64,18 +65,28 @@ class ChatPipeline:
         )
         self._phoenix = PhoenixTracer(endpoint=s.phoenix_endpoint or None)
 
-    # Entry point: executes all 8 pipeline steps in order; publishes a safe fallback on any unhandled error
+    # Entry point: executes all 8 pipeline steps in order; publishes a safe fallback on timeout or error
     async def run(self, ctx: PipelineContext) -> None:
         try:
-            await self._step_dlp_input(ctx)
-            await self._step_enrich_session(ctx)
-            await self._step_run_agent(ctx)
-            await self._step_post_process(ctx)
-            await self._step_confidence_score(ctx)
-            await self._step_dlp_references(ctx)
-            await self._step_translate(ctx)
-            await self._step_threat_track(ctx)
-            await self._step_publish(ctx)
+            async with asyncio.timeout(self._pipeline_timeout):
+                await self._step_dlp_input(ctx)
+                await self._step_enrich_session(ctx)
+                await self._step_run_agent(ctx)
+                await self._step_post_process(ctx)
+                await self._step_confidence_score(ctx)
+                await self._step_dlp_references(ctx)
+                await self._step_translate(ctx)
+                await self._step_threat_track(ctx)
+                await self._step_publish(ctx)
+        except TimeoutError:
+            logger.error(
+                f"[Pipeline] Timeout after {self._pipeline_timeout}s "
+                f"session={ctx.session_id} request={ctx.request_id}"
+            )
+            await send_message_to_pubsub(
+                {"sender": "system", "content": _AGENT_ERROR_MSG, "references": [], "score": None},
+                session_id=ctx.session_id,
+            )
         except Exception as exc:
             logger.error(
                 f"[Pipeline] Unhandled error session={ctx.session_id} "
@@ -241,6 +252,12 @@ class ChatPipeline:
                 logger.error(f"[Pipeline] Agent error_code: {event.error_code}")
                 ctx.final_content = _AGENT_ERROR_MSG
 
+        if not ctx.final_content:
+            logger.error(f"[Pipeline] Agent produced no final text for session={ctx.session_id}")
+            ctx.final_content = _AGENT_ERROR_MSG
+
+        ctx.agent_output_complete = True
+
         ref_count = len(ctx.references)
         if ref_count == 0:
             logger.warning(
@@ -253,14 +270,11 @@ class ChatPipeline:
                 f"(session={ctx.session_id})"
             )
 
-        ctx.agent_output_complete = True
-
     # Step 4: runs relevancy, groundedness, and copyright checkers on the agent response
     async def _step_post_process(self, ctx: PipelineContext) -> None:
         if not ctx.final_content or ctx.final_content in ALL_BLOCK_MESSAGES:
             return
 
-        pre = ctx.final_content
         context_chunks = [r.chunk for r in ctx.references if r.chunk.strip()]
 
         if not context_chunks:
@@ -278,35 +292,55 @@ class ChatPipeline:
             return
 
         # Relevancy first — an irrelevant response doesn't need a groundedness check.
-        ctx.final_content = await self._relevancy.check(
+        relevancy_result = await self._relevancy.check(
             question=ctx.sanitized_input,
             answer=ctx.final_content,
             session_id=ctx.session_id,
             conversation_history=ctx.conversation_history,
         )
+        if relevancy_result in ALL_BLOCK_MESSAGES:
+            ctx.final_content = relevancy_result
+            return  # genuine block — skip downstream
 
-        if ctx.final_content != pre:
-            return
+        ctx.final_content = relevancy_result  # may have multi-intent note appended
 
-        ctx.final_content = await self._groundedness.check(
-            answer=ctx.final_content,
-            context_chunks=context_chunks,
-            session_id=ctx.session_id,
+        # Groundedness and copyright are independent — run concurrently to reduce latency.
+        groundedness_result, copyright_result = await asyncio.gather(
+            self._groundedness.check(
+                answer=ctx.final_content,
+                context_chunks=context_chunks,
+                session_id=ctx.session_id,
+            ),
+            self._copyright.check(
+                answer=ctx.final_content,
+                context_chunks=context_chunks,
+                session_id=ctx.session_id,
+            ),
         )
 
-        if ctx.final_content != pre:
+        # Groundedness takes precedence — it is non-disableable.
+        if groundedness_result in ALL_BLOCK_MESSAGES:
+            ctx.final_content = groundedness_result
             return
-
-        ctx.final_content = await self._copyright.check(
-            answer=ctx.final_content,
-            context_chunks=context_chunks,
-            session_id=ctx.session_id,
-        )
+        if copyright_result in ALL_BLOCK_MESSAGES:
+            ctx.final_content = copyright_result
 
     # Step 5: scores response confidence via LLM judge and appends a caveat on low-confidence answers
     async def _step_confidence_score(self, ctx: PipelineContext) -> None:
         if not ctx.references:
-            logger.debug(f"[Pipeline] Confidence scoring skipped — no grounding references for session {ctx.session_id}")
+            if ctx.final_content and ctx.final_content not in ALL_BLOCK_MESSAGES:
+                ctx.score = "low"
+                ctx.final_content += (
+                    "\n\n*Note: I'm not fully certain about this information. "
+                    "Please verify with Service NSW or the relevant agency "
+                    "before acting on it.*"
+                )
+                log_guardrail_event(GuardRailEvent(
+                    guardrail_name="ConfidenceGuardRail",
+                    layer="post-process", action="modify",
+                    session_id=ctx.session_id, triggered=True,
+                    reason="No grounding references — response flagged as low-confidence",
+                ))
             return
         if not ctx.final_content:
             logger.debug(f"[Pipeline] Confidence scoring skipped — empty response for session {ctx.session_id}")

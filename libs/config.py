@@ -90,6 +90,14 @@ class Settings(BaseSettings):
         validation_alias="MAX_OUTPUT_CHARS",
     )
 
+    # Total wall-clock budget for one pipeline run. Covers every step from DLP input to publish,
+    # including the ADK agent call, all LLM judges, DLP, and translation. Prevents a hung
+    # Vertex AI call from accumulating tasks indefinitely under load.
+    pipeline_timeout_seconds: int = Field(
+        default=120,
+        validation_alias="PIPELINE_TIMEOUT_SECONDS",
+    )
+
     # 0–100 fuzzy match threshold: higher = stricter, lower = catches more misspellings.
     ban_word_fuzzy_threshold: int = Field(
         default=85,
