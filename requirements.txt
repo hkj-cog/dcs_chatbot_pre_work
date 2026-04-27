@@ -147,3 +147,13 @@ websockets==15.0.1
 wheel==0.46.3
 yarl==1.23.0
 zipp==3.23.0
+arize-phoenix-otel>=0.10.0
+arize-phoenix-client>=1.0.0
+arize-phoenix-evals>=2.2.0
+openinference-instrumentation>=0.1.46
+openinference-instrumentation-google-adk>=0.2.0
+opentelemetry-instrumentation>=0.59b0
+opentelemetry-instrumentation-fastapi>=0.59b0
+functions-framework>=3.7.0
+cloudevents>=1.11.0
+pandas>=2.2.0

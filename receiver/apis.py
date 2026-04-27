@@ -1,31 +1,31 @@
 # HTTP chat endpoint (/v1/conversation/chat) — rate-limiting, session init, and pipeline dispatch
 import asyncio
 import time
-import uuid
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from opentelemetry import context as otel_context
+from opentelemetry import trace
 
 from libs.config import get_settings
 from libs.logger import logger
+from libs.observability import record_exception_on_span, with_session_attrs
 from libs.redis_manager import redis_manager
 from libs.validation import SESSION_ID_RE, USER_ID_RE
+from monitoring.redaction import default_redactor
 from services.chat_pipeline import PipelineContext
+
 from .models import ChatRequest
 
 router = APIRouter()
 
 _settings = get_settings()
+_redactor = default_redactor()
 _live_tasks: set[asyncio.Task] = set()
 
 
 async def _check_rate_limit(user_id: str) -> None:
-    """
-    Sliding-window rate limiter backed by Redis (ZSET per user_id).
-    Raises HTTP 429 if the configured limit is exceeded.
-    Fail-open: Redis unavailable allows the request through.
-    """
     limit = _settings.rate_limit_per_minute
     window = 60
     now = time.time()
@@ -54,13 +54,29 @@ async def _check_rate_limit(user_id: str) -> None:
         await client.aclose()
 
 
-# Smoke-test endpoint to confirm the router is reachable
 @router.get("/test")
 async def test_endpoint():
     return {"message": "Success"}
 
 
-# HTTP entry point for chat: validates headers, enforces rate limit, resolves session, dispatches pipeline
+async def _run_pipeline_with_context(pipeline, ctx: "PipelineContext", otel_ctx) -> None:
+    """Background task wrapper: re-attaches the OTel context so the pipeline's spans
+    inherit the request's trace_id, session.id and user.id baggage."""
+    token = otel_context.attach(otel_ctx)
+    try:
+        with with_session_attrs(session_id=ctx.session_id, user_id=ctx.user_id):
+            await pipeline.run(ctx)
+    except Exception as e:
+        record_exception_on_span(e)
+        logger.exception(
+            "Pipeline task failed",
+            extra={"session_id": ctx.session_id, "user_id": ctx.user_id, "request_id": ctx.request_id},
+        )
+        raise
+    finally:
+        otel_context.detach(token)
+
+
 @router.post("/chat")
 async def save_chat(
     request: Request,
@@ -79,9 +95,7 @@ async def save_chat(
 
     if session_id:
         existing = await session_service.get_session(
-            session_id=session_id,
-            app_name="adk_chatbot",
-            user_id=user_id,
+            session_id=session_id, app_name="adk_chatbot", user_id=user_id,
         )
         if existing is None:
             return JSONResponse(
@@ -90,12 +104,25 @@ async def save_chat(
             )
     else:
         session = await session_service.create_session(
-            app_name="adk_chatbot",
-            user_id=user_id,
+            app_name="adk_chatbot", user_id=user_id,
         )
         session_id = session.id
 
-    request_id = str(uuid.uuid4())
+    # Re-use the X-Request-Id the correlation middleware already stamped on this request.
+    request_id = request.state.request_id
+
+    # Tag the FastAPI server span with the IDs and a redacted preview of the input.
+    current_span = trace.get_current_span()
+    if current_span and current_span.is_recording():
+        current_span.set_attribute("session.id", str(session_id))
+        current_span.set_attribute("user.id", user_id)
+        current_span.set_attribute("request.id", request_id)
+        # Length only — never raw input — plus a redacted preview for debugging.
+        current_span.set_attribute("input.length", len(body.user_input or ""))
+        current_span.set_attribute(
+            "input.preview.redacted",
+            _redactor.redact((body.user_input or ""))[:256],
+        )
 
     ctx = PipelineContext(
         user_id=user_id,
@@ -105,9 +132,20 @@ async def save_chat(
         request_id=request_id,
     )
 
-    task = asyncio.create_task(request.app.state.pipeline.run(ctx))
-    _live_tasks.add(task)
-    task.add_done_callback(_live_tasks.discard)
+    # Capture the active OTel context so the background pipeline span is a child
+    # of the HTTP request span.
+    otel_ctx = otel_context.get_current()
+
+    with with_session_attrs(session_id=session_id, user_id=user_id):
+        logger.info(
+            "Accepted chat request",
+            extra={"session_id": session_id, "user_id": user_id, "request_id": request_id},
+        )
+        task = asyncio.create_task(
+            _run_pipeline_with_context(request.app.state.pipeline, ctx, otel_ctx)
+        )
+        _live_tasks.add(task)
+        task.add_done_callback(_live_tasks.discard)
 
     return JSONResponse(
         content={"reply": "accepted", "request_id": request_id},

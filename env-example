@@ -126,13 +126,28 @@ WS_SESSION_TTL_SECONDS=6000
 # (CORS spec violation). Always set explicit origins.
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000
 
-# ── Observability (Arize Phoenix) ─────────────────────────────────────────────
-# OTLP HTTP endpoint for Arize Phoenix LLM pipeline tracing.
-# libs/phoenix_tracer.py is currently a no-op stub — setting this will log a
-# startup notice but not emit spans until the OTel implementation is restored.
-# See libs/phoenix_tracer.py for full activation steps.
-# Example: PHOENIX_ENDPOINT=http://localhost:6006/v1/traces
-PHOENIX_ENDPOINT=
+# ─── Observability (Arize Phoenix Cloud) ──────────────────────────────────────
+OBSERVABILITY_ENABLED=true
+OTEL_SERVICE_NAME=dcs_chatbot
+
+# Phoenix Cloud endpoint + API key. Get the key from
+# https://app.phoenix.arize.com → Settings → API Keys
+PHOENIX_ENDPOINT=https://app.phoenix.arize.com
+PHOENIX_API_KEY=
+PHOENIX_PROJECT_NAME=dcs-chat
+
+# These two are read by the arize-phoenix-client SDK directly,
+# used by monitoring/gemini_eval.py:
+PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com
+PHOENIX_CLIENT_HEADERS=api_key=
+
+# Sampling: 1.0 = all traces. Drop to 0.1 in prod once volume is real.
+OBSERVABILITY_SAMPLE_RATIO=1.0
+OBSERVABILITY_REDACT_PII=true
+LOG_FORMAT=json
+
+# Optional: also export to GCP Cloud Trace
+OBSERVABILITY_EXPORT_TO_GCP=false
 
 # ── Guardrail Kill Switches ───────────────────────────────────────────────────
 # JSON list of guardrail class names to disable at startup (emergency use only).

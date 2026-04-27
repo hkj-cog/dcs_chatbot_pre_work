@@ -11,19 +11,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from agent.vertex_agent import build_dlp, build_runner
-from services.chat_pipeline import ChatPipeline
 from libs.config import get_settings
 from libs.logger import logger
+from libs.observability import get_status as observability_status, init_observability
 from libs.redis_manager import redis_manager
-from receiver.apis import router as chat_router, _live_tasks
+from receiver.apis import _live_tasks, router as chat_router
 from responders.api import router as ws_router
+from services.chat_pipeline import ChatPipeline
 from worker.api import router as pubsub_router
 
 settings = get_settings()
 
 
 @asynccontextmanager
-# Initialises Redis, DLP, ADK runner, and pipeline on startup; tears them down on shutdown
 async def lifespan(app: FastAPI):
     logger.info("Starting up — initialising resources...")
 
@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
     app.state.session_service = session_service
     app.state.pipeline = ChatPipeline(runner=runner, session_service=session_service, dlp=dlp)
     logger.info("Agent runner, DLP client, and pipeline ready.")
+    logger.info("Observability status", extra={"observability": observability_status()})
 
     yield
 
@@ -60,8 +61,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
+# Initialise observability ONCE. Must run before routers are exercised.
+init_observability(app)
 
+origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
 if "*" in origins:
     raise RuntimeError(
         "ALLOWED_ORIGINS=* cannot be used with allow_credentials=True. "
@@ -78,8 +81,7 @@ app.add_middleware(
 )
 
 
-# ── Correlation ID middleware ─────────────────────────────────────────────────
-
+# ── Correlation ID middleware ────────────────────────────────────────────────
 @app.middleware("http")
 async def correlation_id_middleware(request: Request, call_next) -> Response:
     request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
@@ -89,17 +91,20 @@ async def correlation_id_middleware(request: Request, call_next) -> Response:
     return response
 
 
-# ── Health endpoints ──────────────────────────────────────────────────────────
-
+# ── Health endpoints ────────────────────────────────────────────��────────────
 @app.get("/health", tags=["ops"])
 async def health():
-    """Liveness probe — returns 200 when the process is running."""
     return {"status": "ok"}
+
+
+@app.get("/healthz", tags=["ops"])
+async def healthz():
+    """Detailed health, including observability status."""
+    return {"status": "ok", "observability": observability_status()}
 
 
 @app.get("/readiness", tags=["ops"])
 async def readiness(request: Request):
-    """Readiness probe — checks Redis and pipeline. Returns 503 when degraded."""
     checks: dict[str, str] = {}
 
     client = redis_manager.get_client()
@@ -118,15 +123,13 @@ async def readiness(request: Request):
         checks["pipeline"] = "not initialised"
 
     all_ok = all(v == "ok" for v in checks.values())
-    status_code = 200 if all_ok else 503
     return JSONResponse(
-        status_code=status_code,
+        status_code=200 if all_ok else 503,
         content={"status": "ready" if all_ok else "degraded", "checks": checks},
     )
 
 
-# ── API routers ───────────────────────────────────────────────────────────────
-
+# ── API routers ──────────────────────────────────────────────────────────────
 app.include_router(chat_router, prefix="/v1/conversation")
 app.include_router(pubsub_router, prefix="/v1/webhook")
 app.include_router(ws_router, prefix="/v1/ws")

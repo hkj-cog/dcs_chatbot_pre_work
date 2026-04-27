@@ -10,7 +10,6 @@ from agent.scoring import ConfidenceScorer
 from agent.translate import Translator
 from guardrails import ALL_BLOCK_MESSAGES, SECURITY_BLOCK_MESSAGES
 from guardrails.constants import _AGENT_ERROR_MSG, _OUTPUT_BLOCK_MSG, _SECRETS_BLOCK_MSG
-from libs.config import GUARDRAILS_VERSION
 from guardrails.moderation_utils import MODERATION_CATEGORIES_OUTPUT, check_moderation_categories
 from guardrails.post_process import (
     CopyrightComplianceChecker,
@@ -18,7 +17,7 @@ from guardrails.post_process import (
     RelevancyChecker,
 )
 from guardrails.utils import redact_secrets
-from libs.config import JUDGE_MODEL, get_settings
+from libs.config import GUARDRAILS_VERSION, JUDGE_MODEL, get_settings
 from libs.logger import GuardRailEvent, log_guardrail_event, logger
 from libs.phoenix_tracer import PhoenixTracer
 from libs.pubsub import send_message_to_pubsub
@@ -46,7 +45,7 @@ class PipelineContext:
 
 
 class ChatPipeline:
-    """Orchestrates the 7-step pipeline: DLP → session enrichment → agent → post-process → score → translate → publish."""
+    """Orchestrates the 8-step pipeline: DLP → session enrichment → agent → post-process → (DLP refs + score) → translate → threat-track → publish."""
 
     def __init__(self, runner, session_service, dlp, settings=None):
         s = settings or get_settings()

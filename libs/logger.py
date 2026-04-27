@@ -1,23 +1,88 @@
 # Structured JSON logging — GuardRailEvent dataclass and SIEM escalation helpers
+# Adds OpenTelemetry trace_id/span_id correlation; preserves the original API.
 import json
 import logging
 import sys
 from dataclasses import asdict, dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
-from libs.config import GUARDRAILS_VERSION
+from libs.config import GUARDRAILS_VERSION, get_settings
 
 
-# Creates and configures the structured stdout logger used across the entire application
+class _TraceContextFilter(logging.Filter):
+    """Injects current OTel trace_id/span_id (if any) into every record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            from opentelemetry import trace  # local import — avoids hard dep at logger import time
+            span = trace.get_current_span()
+            ctx = span.get_span_context() if span else None
+            if ctx and ctx.is_valid:
+                record.trace_id = format(ctx.trace_id, "032x")
+                record.span_id = format(ctx.span_id, "016x")
+                return True
+        except Exception:
+            pass
+        record.trace_id = ""
+        record.span_id = ""
+        return True
+
+
+class _JsonFormatter(logging.Formatter):
+    _RESERVED = {
+        "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
+        "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
+        "created", "msecs", "relativeCreated", "thread", "threadName",
+        "processName", "process", "message", "asctime",
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "file": record.filename,
+            "line": record.lineno,
+            "trace_id": getattr(record, "trace_id", ""),
+            "span_id": getattr(record, "span_id", ""),
+        }
+        for k, v in record.__dict__.items():
+            if k not in self._RESERVED and not k.startswith("_") and k not in payload:
+                payload[k] = v
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str)
+
+
 def setup_app_logger(name: str = "dcs_chatbot") -> logging.Logger:
+    """Creates and configures the structured stdout logger used across the entire application."""
     logger = logging.getLogger(name)
-    if not logger.handlers:
-        logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler(sys.stdout)
-        formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        logger.propagate = False
+    if logger.handlers:
+        return logger
+
+    # Settings may not yet be importable on first call from inside Settings.model_post_init,
+    # so fall back to JSON if Settings() raises.
+    try:
+        log_format = get_settings().observability_log_format
+    except Exception:
+        log_format = "json"
+
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    handler = logging.StreamHandler(sys.stdout)
+    if log_format == "json":
+        handler.setFormatter(_JsonFormatter())
+    else:
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(name)s "
+                "trace=%(trace_id)s span=%(span_id)s — %(message)s"
+            )
+        )
+    handler.addFilter(_TraceContextFilter())
+    logger.addHandler(handler)
     return logger
 
 
@@ -39,11 +104,11 @@ class GuardRailEvent:
 
 def log_guardrail_event(event: GuardRailEvent) -> None:
     """Emits a structured JSON guardrail event line. Block events use WARNING severity."""
-    payload = json.dumps({"guardrail_event": asdict(event)})
+    payload = asdict(event)
     if event.action == "block":
-        logger.warning(payload)
+        logger.warning("guardrail_event", extra={"guardrail_event": payload})
     else:
-        logger.info(payload)
+        logger.info("guardrail_event", extra={"guardrail_event": payload})
 
 
 def log_escalation_event(
@@ -53,11 +118,14 @@ def log_escalation_event(
     reason: str,
 ) -> None:
     """Emits a CRITICAL structured escalation log when a session exceeds the threat threshold."""
-    logger.critical(json.dumps({
-        "escalation_event": {
-            "session_id": session_id,
-            "trigger_count": trigger_count,
-            "last_guardrail": last_guardrail,
-            "reason": reason,
-        }
-    }))
+    logger.critical(
+        "escalation_event",
+        extra={
+            "escalation_event": {
+                "session_id": session_id,
+                "trigger_count": trigger_count,
+                "last_guardrail": last_guardrail,
+                "reason": reason,
+            }
+        },
+    )
