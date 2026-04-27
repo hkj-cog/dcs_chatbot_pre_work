@@ -124,6 +124,7 @@ def build_runner(dlp: GoogleDlp, settings=None) -> tuple:
         agent_name="adk_chatbot",
         agent_description="Helps users with questions by searching the NSW Government document datastore.",
 
+        # Phase 1: sequential — fast checks and text transforms (no LLM calls)
         input_guardrails=_filter_disabled([
             InputLengthGuardRail(max_chars=s.max_input_chars),
             SecretsInputGuardRail(),
@@ -135,16 +136,19 @@ def build_runner(dlp: GoogleDlp, settings=None) -> tuple:
                 context_allowlist=s.ban_word_context_allowlist,
                 threshold=s.ban_word_fuzzy_threshold,
             ),
-            # Crisis runs before jailbreak so distress messages get a compassionate response, not a security block.
+        ], disabled),
+        # Phase 2: concurrent — independent LLM judges; crisis listed first to take priority on block
+        parallel_input_guardrails=_filter_disabled([
             CrisisDetectionInputGuardRail(model_id=JUDGE_MODEL, location=location),
             JailbreakGuardRail(model_id=JUDGE_MODEL, location=location),
             ImproperContentGuardRail(),
             CompositeInputJudgeGuardRail(model_id=JUDGE_MODEL, location=location),
         ], disabled),
 
+        # Phase 1: sequential — length gate, readability rewrite, redactors, moderation
         output_guardrails=_filter_disabled([
             OutputLengthGuardRail(max_chars=s.max_output_chars),
-            # Plain-language rewrite runs second so downstream guardrails evaluate the final text.
+            # Plain-language rewrite runs second so all downstream guardrails evaluate the final text.
             CitizenReadabilityOutputGuardRail(model_id=JUDGE_MODEL, location=location),
             CreditCardRedactionGuardRail(),
             SecretsOutputGuardRail(),
@@ -159,10 +163,13 @@ def build_runner(dlp: GoogleDlp, settings=None) -> tuple:
                 threshold=s.ban_word_fuzzy_threshold,
             ),
             LanguageCheckGuardRail(),
+        ], disabled),
+        # Phase 2: concurrent — independent LLM judges and disclaimer appenders
+        parallel_output_guardrails=_filter_disabled([
             CompositeOutputJudgeGuardRail(model_id=JUDGE_MODEL, location=location),
             NSWAIComplianceGuardRail(model_id=JUDGE_MODEL, location=location),
             RequiredInclusionsGuardRail(model_id=JUDGE_MODEL, location=location),
-            InformationCurrencyGuardRail(model_id=JUDGE_MODEL, location=location),  # wraps the fully-validated response
+            InformationCurrencyGuardRail(model_id=JUDGE_MODEL, location=location),
         ], disabled),
 
         tool_call_guardrail=ToolCallGuardRail(blocked_query_terms=s.blocked_query_terms),

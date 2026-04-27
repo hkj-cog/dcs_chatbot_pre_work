@@ -1,9 +1,19 @@
 # Output guardrail: LLM rewrites unexplained acronyms and jargon for citizen readability
+import re
 from typing import Optional
 
 from guardrails.base import OutputGuardRailBase, GuardRailResult
 from guardrails.utils import invoke_chain_raw, llm_chain
 from libs.logger import GuardRailEvent, log_guardrail_event, logger
+
+# Fast pre-screen: terms the LLM prompt explicitly targets. If none are present the LLM
+# call is skipped entirely. False negatives are acceptable — the list covers the known set.
+_JARGON_RE = re.compile(
+    r"\b(?:NDIS|BASIX|SEPP|EPA|LGA|BAS|PAYG|NCAT|AVO|IVF"
+    r"|statutory\s+declaration|encumbrance|gazetted|promulgated"
+    r"|ex\s+parte|nunc\s+pro\s+tunc|in\s+camera)\b",
+    re.IGNORECASE,
+)
 
 _PLAIN_LANGUAGE_PROMPT = """\
 You are a plain-language accessibility reviewer for an NSW Government citizen-facing chatbot.
@@ -47,6 +57,15 @@ class CitizenReadabilityOutputGuardRail(OutputGuardRailBase):
     async def process(
         self, text: str, session_id: str = "", session_state: Optional[dict] = None
     ) -> GuardRailResult:
+        if not _JARGON_RE.search(text):
+            log_guardrail_event(GuardRailEvent(
+                guardrail_name="CitizenReadabilityOutputGuardRail",
+                layer="output", action="allow",
+                session_id=session_id, triggered=False,
+                reason="Fast path: no known jargon detected — LLM call skipped",
+            ))
+            return GuardRailResult(is_blocked=False)
+
         try:
             verdict = await invoke_chain_raw(self._chain, response=text)
 

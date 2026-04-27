@@ -1,4 +1,5 @@
 # VertexAIAgent wrapper — chains input/output guardrails into ADK LlmAgent callbacks
+import asyncio
 from typing import List, Optional, Union
 
 from google.adk.agents.callback_context import CallbackContext
@@ -27,7 +28,9 @@ class VertexAIAgent:
         agent_name: str,
         agent_description: str,
         input_guardrails: Optional[List[GuardRail]] = None,
+        parallel_input_guardrails: Optional[List[GuardRail]] = None,
         output_guardrails: Optional[List[OutputGuardRailBase]] = None,
+        parallel_output_guardrails: Optional[List[OutputGuardRailBase]] = None,
         tool_call_guardrail: Optional[ToolCallGuardRail] = None,
         tool_response_guardrail: Optional[ToolResponseGuardRail] = None,
         safety_settings: Optional[List[SafetySetting]] = None,
@@ -56,11 +59,16 @@ class VertexAIAgent:
                 "Provide tool_response_guardrail for DCS compliance."
             )
 
+        _par_in = parallel_input_guardrails or []
+        _par_out = parallel_output_guardrails or []
+
         # Audit: log the full guardrail chain at startup.
         logger.info(
             f"[VertexAIAgent] Bidirectional guardrail chain registered — "
-            f"input={[g.__class__.__name__ for g in input_guardrails]} | "
-            f"output={[g.__class__.__name__ for g in output_guardrails]}"
+            f"input_seq={[g.__class__.__name__ for g in input_guardrails]} "
+            f"input_par={[g.__class__.__name__ for g in _par_in]} | "
+            f"output_seq={[g.__class__.__name__ for g in output_guardrails]} "
+            f"output_par={[g.__class__.__name__ for g in _par_out]}"
         )
 
         self._agent: LlmAgent = LlmAgent(
@@ -69,8 +77,8 @@ class VertexAIAgent:
             tools=tools,
             instruction=instructions,
             description=agent_description,
-            before_model_callback=self._build_before_model_callback(input_guardrails),
-            after_model_callback=self._build_after_model_callback(output_guardrails),
+            before_model_callback=self._build_before_model_callback(input_guardrails, _par_in),
+            after_model_callback=self._build_after_model_callback(output_guardrails, _par_out),
             before_tool_callback=tool_call_guardrail or None,
             after_tool_callback=tool_response_guardrail or None,
             generate_content_config=types.GenerateContentConfig(
@@ -100,9 +108,10 @@ class VertexAIAgent:
                 lines.append(f"{role}: {text}")
         return "\n".join(lines)
 
-    # Builds the ADK before_model_callback that chains all input guardrails before each LLM call
-    def _build_before_model_callback(self, guard_rails: List[GuardRail]) -> callable:
-        # Runs each input guardrail in sequence; short-circuits on first block
+    # Builds the ADK before_model_callback: Phase 1 runs sequentially (transforms), Phase 2 concurrently (LLM judges)
+    def _build_before_model_callback(
+        self, sequential_rails: List[GuardRail], parallel_rails: List[GuardRail]
+    ) -> callable:
         async def callback(
             callback_context: CallbackContext,
             llm_request: LlmRequest,
@@ -110,7 +119,8 @@ class VertexAIAgent:
             session_id = getattr(callback_context, "session_id", "") or ""
             logger.info(
                 f"[BeforeModelCallback] agent='{callback_context.agent_name}' "
-                f"session='{session_id}' rails={len(guard_rails)}"
+                f"session='{session_id}' "
+                f"rails_seq={len(sequential_rails)} rails_par={len(parallel_rails)}"
             )
 
             if not llm_request.contents or llm_request.contents[-1].role != "user":
@@ -129,7 +139,9 @@ class VertexAIAgent:
                     # Skip non-text parts (function calls, tool blobs, etc.)
                     continue
                 current_text = part.text
-                for rail in guard_rails:
+
+                # Phase 1: sequential — length gate, secret check, datetime inject, ban words
+                for rail in sequential_rails:
                     outcome = await rail.process(
                         current_text,
                         session_id=session_id,
@@ -149,15 +161,41 @@ class VertexAIAgent:
                         )
                     if outcome.modified_text:
                         current_text = outcome.modified_text
+
+                # Phase 2: concurrent — independent read-only LLM judges (crisis, jailbreak, composite, moderation)
+                if parallel_rails:
+                    par_outcomes = await asyncio.gather(*[
+                        rail.process(
+                            current_text,
+                            session_id=session_id,
+                            conversation_history=conversation_history,
+                            session_state=session_state,
+                        )
+                        for rail in parallel_rails
+                    ])
+                    for rail, outcome in zip(parallel_rails, par_outcomes):
+                        if outcome.is_blocked:
+                            logger.warning(
+                                f"[InputGuardRail BLOCKED] rail={rail.__class__.__name__} "
+                                f"reason='{outcome.blocked_reason[:60]}'"
+                            )
+                            return LlmResponse(
+                                content=types.Content(
+                                    role="model",
+                                    parts=[types.Part.from_text(text=outcome.blocked_reason)],
+                                )
+                            )
+
                 part.text = current_text
 
             return None
 
         return callback
 
-    # Builds the ADK after_model_callback that chains all output guardrails on each LLM response
-    def _build_after_model_callback(self, guard_rails: List[OutputGuardRailBase]) -> callable:
-        # Runs each output guardrail in sequence; short-circuits on first block
+    # Builds the ADK after_model_callback: Phase 1 sequential (transforms/redactors), Phase 2 concurrent (LLM judges)
+    def _build_after_model_callback(
+        self, sequential_rails: List[OutputGuardRailBase], parallel_rails: List[OutputGuardRailBase]
+    ) -> callable:
         async def callback(
             callback_context: CallbackContext,
             llm_response: LlmResponse,
@@ -177,7 +215,9 @@ class VertexAIAgent:
                         continue
                     current_text = part.text
                     blocked = False
-                    for rail in guard_rails:
+
+                    # Phase 1: sequential — length gate, readability rewrite, redactors, moderation
+                    for rail in sequential_rails:
                         outcome = await rail.process(
                             current_text,
                             session_id=session_id,
@@ -193,6 +233,34 @@ class VertexAIAgent:
                             break
                         if outcome.modified_text:
                             current_text = outcome.modified_text
+
+                    # Phase 2: concurrent — independent LLM judges and disclaimer appenders
+                    if not blocked and parallel_rails:
+                        base_text = current_text  # snapshot for suffix-based modifier merge
+                        par_outcomes = await asyncio.gather(*[
+                            rail.process(
+                                current_text,
+                                session_id=session_id,
+                                session_state=session_state,
+                            )
+                            for rail in parallel_rails
+                        ])
+                        for rail, outcome in zip(parallel_rails, par_outcomes):
+                            if outcome.is_blocked:
+                                logger.warning(
+                                    f"[OutputGuardRail BLOCKED] rail={rail.__class__.__name__} "
+                                    f"reason='{outcome.blocked_reason[:60]}'"
+                                )
+                                part.text = outcome.blocked_reason
+                                blocked = True
+                                break
+                            if outcome.modified_text:
+                                # Accumulate appended suffixes relative to the pre-parallel snapshot
+                                if outcome.modified_text.startswith(base_text):
+                                    current_text += outcome.modified_text[len(base_text):]
+                                else:
+                                    current_text = outcome.modified_text
+
                     if not blocked:
                         part.text = current_text
 

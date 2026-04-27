@@ -75,8 +75,10 @@ class ChatPipeline:
                 await self._step_enrich_session(ctx)
                 await self._step_run_agent(ctx)
                 await self._step_post_process(ctx)
-                await self._step_confidence_score(ctx)
-                await self._step_dlp_references(ctx)
+                await asyncio.gather(
+                    self._step_dlp_references(ctx),
+                    self._step_confidence_score(ctx),
+                )
                 await self._step_translate(ctx)
                 await self._step_threat_track(ctx)
                 await self._step_publish(ctx)
