@@ -38,6 +38,8 @@ class PipelineContext:
     references: List[Reference] = field(default_factory=list)
     score: Optional[str] = None
     conversation_history: str = ""  # prior turns only; populated before agent runs
+    detected_language: Optional[str] = None        # language detected from sanitized_input in _step_enrich_session
+    detected_language_confidence: float = 0.0      # detection confidence; reused in _verify_translation
     # Both flags must be True before _step_publish sends content to citizens.
     dlp_input_complete: bool = False    # DLP input sanitisation ran
     agent_output_complete: bool = False  # ADK runner completed (after_model_callback fired)
@@ -156,6 +158,8 @@ class ChatPipeline:
                 lang, confidence = await asyncio.to_thread(
                     Translator.detect_language_with_confidence, ctx.sanitized_input
                 )
+                ctx.detected_language = lang
+                ctx.detected_language_confidence = confidence
                 s = get_settings()
                 if confidence >= s.language_detection_confidence_threshold:
                     session.state["user_language"] = lang
@@ -466,22 +470,22 @@ class ChatPipeline:
 
         # Banned words check skipped on translation: English terms don't fuzzy-match reliably in other languages.
         ctx.final_content = translated_content
-        translated_refs = []
-        for r in ctx.references:
+
+        async def _translate_ref(r: Reference) -> Reference:
             title = (
                 (await asyncio.to_thread(Translator.translate, ctx.sanitized_input, r.title))[1]
                 if r.title
                 else ""
             )
-            translated_refs.append(Reference(chunk=r.chunk, url=r.url, title=title))
-        ctx.references = translated_refs
+            return Reference(chunk=r.chunk, url=r.url, title=title)
+
+        ctx.references = list(await asyncio.gather(*(_translate_ref(r) for r in ctx.references)))
 
     # Verifies the translated output is in the expected language; discards it if high-confidence mismatch
     async def _verify_translation(self, ctx: PipelineContext, translated_content: str) -> bool:
         try:
-            expected_lang, expected_conf = await asyncio.to_thread(
-                Translator.detect_language_with_confidence, ctx.sanitized_input
-            )
+            expected_lang = ctx.detected_language
+            expected_conf = ctx.detected_language_confidence
             actual_lang, actual_conf = await asyncio.to_thread(
                 Translator.detect_language_with_confidence, translated_content
             )
