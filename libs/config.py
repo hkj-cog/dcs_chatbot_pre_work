@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     supported_input_languages: List[str] = Field(default=["en"], validation_alias="SUPPORTED_INPUT_LANGUAGES")
     ws_session_ttl_seconds: int = Field(default=6000, validation_alias="WS_SESSION_TTL_SECONDS")
 
+    # --- WebSocket inbox (lost-first-reply buffer) ---
+    # When False, undeliverable replies return 503 so Pub/Sub retries instead of buffering.
+    ws_inbox_enabled: bool = Field(default=True, validation_alias="WS_INBOX_ENABLED")
+    # Redis TTL (seconds) for inbox:{session_id} so abandoned sessions don't pile up.
+    ws_inbox_ttl_seconds: int = Field(default=120, validation_alias="WS_INBOX_TTL_SECONDS")
+    # Per-session buffer cap; list trimmed to newest N entries on every push to protect Redis memory.
+    ws_inbox_max_messages: int = Field(default=20, validation_alias="WS_INBOX_MAX_MESSAGES")
+
     banned_words_by_language: dict = Field(default={}, validation_alias="BANNED_WORDS_BY_LANGUAGE")
     banned_words_soft_by_language: dict = Field(default={}, validation_alias="BANNED_WORDS_SOFT_BY_LANGUAGE")
     banned_words_warn_by_language: dict = Field(default={}, validation_alias="BANNED_WORDS_WARN_BY_LANGUAGE")
@@ -123,6 +131,17 @@ class Settings(BaseSettings):
                 "user's detected input language — and will block ALL output when input "
                 "language detection is low-confidence or unavailable. "
                 "Set SUPPORTED_OUTPUT_LANGUAGES=[\"en\"] to allow the service primary language."
+            )
+        if not self.ws_inbox_enabled:
+            _log.warning(
+                "[Config] WS_INBOX_ENABLED=false — replies arriving before the WebSocket "
+                "subscribes will NOT be buffered. The worker will return 503 so Pub/Sub "
+                "retries delivery; users may see a slower first reply."
+            )
+        if self.ws_inbox_max_messages <= 0:
+            _log.warning(
+                f"[Config] WS_INBOX_MAX_MESSAGES={self.ws_inbox_max_messages} is non-positive — "
+                "buffering is effectively disabled."
             )
         if self.disabled_guardrails:
             from guardrails.constants import NON_DISABLEABLE_GUARDRAILS

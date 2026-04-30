@@ -1,18 +1,25 @@
-### 
-POST http://localhost:8000/save HTTP/1.1
+### Health
+GET http://localhost:8000/health HTTP/1.1
+
+
+### Start a new conversation (no x-session-id → server creates one and returns it in response header)
+POST http://localhost:8000/v1/conversation/chat HTTP/1.1
+X-User-ID: 2279450
 Content-Type: application/json
 
 {
-  "exampleKey": "exampleValue"
+  "user_input": "What time is it in London?",
+  "translate": false
 }
 
 
-### 
-
-POST http://127.0.0.1:8000/conversation/chat HTTP/1.1
-X-User-Id: 2279450
+### Continue an existing conversation (echo back the x-session-id from the previous response)
+POST http://localhost:8000/v1/conversation/chat HTTP/1.1
+X-User-ID: 2279450
+x-session-id: REPLACE_WITH_SESSION_ID
 Content-Type: application/json
 
 {
-  "user_input": "What time is it in London?"
+  "user_input": "And in Sydney?",
+  "translate": false
 }

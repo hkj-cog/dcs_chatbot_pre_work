@@ -1,156 +1,111 @@
 # ── GCP Core ──────────────────────────────────────────────────────────────────
+# GCP project ID used for all cloud service API calls.
 GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+# GCP region for Vertex AI, DLP, and other location-sensitive services.
 GOOGLE_CLOUD_LOCATION=australia-southeast1
 
-# Required by the Google GenAI SDK to route requests through Vertex AI.
-# Not a pydantic Settings field — read directly from the environment.
+# Routes GenAI SDK requests through Vertex AI instead of Google AI Studio; not a Settings field.
 GOOGLE_GENAI_USE_VERTEXAI=1
 
 # ── Agent / Model ─────────────────────────────────────────────────────────────
+# Gemini model ID used for the main chat agent and all LLM judge calls.
 MODEL_ID=gemini-2.5-flash
 
-# Full Vertex AI Search datastore resource path.
-# projects/<PROJECT>/locations/<LOCATION>/collections/default_collection/dataStores/<DATASTORE_ID>
-# Leave empty to run without a datastore (guardrail testing only — not suitable for production).
+# Full Vertex AI Search datastore path; leave empty for guardrail-only testing (not suitable for production).
 DATASTORE_ID=projects/your-gcp-project-id/locations/global/collections/default_collection/dataStores/your-datastore-id
 
 # ── PII / DLP ─────────────────────────────────────────────────────────────────
-# JSON list of Google Cloud DLP info-type names to detect and redact.
-# Note: AUSTRALIA_ABN_NUMBER is not available in australia-southeast1 — ABN redaction
-# is handled locally via regex in libs/dlp.py instead.
-# Full reference: https://cloud.google.com/dlp/docs/infotypes-reference
+# JSON list of Cloud DLP info-type names to detect and redact; AUSTRALIA_ABN_NUMBER is handled locally via regex.
 PII_DATA_TYPES=["EMAIL_ADDRESS","PHONE_NUMBER","FIRST_NAME","LAST_NAME","PASSPORT","AUSTRALIA_TAX_FILE_NUMBER","AUSTRALIA_MEDICARE_NUMBER","AUSTRALIA_DRIVERS_LICENSE_NUMBER","DATE_OF_BIRTH"]
 
 # ── Ban Words ─────────────────────────────────────────────────────────────────
-# English cross-language base lists. Applied to ALL messages regardless of detected
-# language — including when language detection fails or confidence is below threshold.
-# Inflection expansion is pre-computed at startup (harass → harassing, harassed, …).
-#
-# Three tiers:
-#   hard  → always blocks (_IMPROPER_BLOCK_MSG)
-#   soft  → blocks with a softer message (_SOFT_BAN_BLOCK_MSG)
-#   warn  → logs at INFO and allows through (monitoring only)
-#
-# Context allowlist: operator-configured regex patterns; when matched, effective
-# tier drops one level (hard→soft, soft→warn, warn→allow). Hard tier is never
-# reduced. Use for legal citations or legislation quotes where banned words appear.
+# Hard-block words; any match immediately blocks the message.
 BANNED_WORDS=[]
+# Soft-block words; blocked unless a context allowlist pattern matches.
 BANNED_WORDS_SOFT=[]
+# Warn-only words; logged but allowed through.
 BANNED_WORDS_WARN=[]
+# Regex patterns that downgrade a soft/warn match when context suggests legitimate use (e.g. legal citations).
 BAN_WORD_CONTEXT_ALLOWLIST=[]
-
-# Per-language banned word lists. Keys are BCP-47 language codes (e.g. "es", "vi", "zh-CN").
-# Applied ONLY when the user's detected language matches the key, at or above the
-# confidence threshold. Merged with the English base lists above at runtime.
-# Inflection expansion is NOT applied — English suffix rules do not generalise across languages.
-# Add entries after governance approval per language.
-# Both base (English) and per-language lists serve different purposes — see docs.
-#
-# BANNED_WORDS_BY_LANGUAGE   → hard-block terms per language
-# BANNED_WORDS_SOFT_BY_LANGUAGE → soft-block terms per language
-# BANNED_WORDS_WARN_BY_LANGUAGE → warn/monitor terms per language
-#
-# Example:
-# BANNED_WORDS_BY_LANGUAGE={"vi": ["từ_cấm_1", "từ_cấm_2"], "es": ["palabra_prohibida"]}
+# Per-language JSON map of hard-block words, keyed by BCP-47 language code.
 BANNED_WORDS_BY_LANGUAGE={}
+# Per-language JSON map of soft-block words.
 BANNED_WORDS_SOFT_BY_LANGUAGE={}
+# Per-language JSON map of warn-only words.
 BANNED_WORDS_WARN_BY_LANGUAGE={}
-
-# Fuzzy-match threshold (0–100) for ban-word and tool-call guardrails.
-# Higher = stricter match required; lower = catches more misspellings.
+# Rapidfuzz token score (0–100) at or above which a word is considered a ban-word match.
 BAN_WORD_FUZZY_THRESHOLD=85
 
 # ── Tool Call Guard ───────────────────────────────────────────────────────────
-# JSON list of query terms blocked in ToolCallGuardRail (fuzzy-matched).
+# Fuzzy-matched terms blocked from being sent as queries to the Vertex AI Search datastore.
 BLOCKED_QUERY_TERMS=["financial records", "personal employee data"]
 
 # ── Rate Limiting ─────────────────────────────────────────────────────────────
-# Maximum requests per minute per user_id (sliding-window Redis counter).
+# Maximum requests per session per minute before rate-limiting kicks in.
 RATE_LIMIT_PER_MINUTE=60
 
 # ── Session Threat Tracking ───────────────────────────────────────────────────
-# Cumulative guardrail trigger events within SESSION_THREAT_WINDOW_SECONDS before
-# a CRITICAL escalation alert is emitted to Cloud Logging / SIEM.
+# Number of security blocks within the window before the session is escalated to SIEM.
 SESSION_THREAT_THRESHOLD=5
+# Sliding window duration (seconds) used to count security block events per session.
 SESSION_THREAT_WINDOW_SECONDS=3600
 
 # ── Input / Output Limits ─────────────────────────────────────────────────────
-# Must stay consistent between the HTTP boundary check and InputLengthGuardRail.
+# Maximum character length accepted for user input; longer messages are blocked.
 MAX_INPUT_CHARS=4000
+# Maximum character length for LLM output; longer responses are blocked before delivery.
 MAX_OUTPUT_CHARS=8000
 
 # ── Language Detection ────────────────────────────────────────────────────────
-# Minimum detection confidence (0.0–1.0) before LanguageCheckGuardRail acts.
-# Below this threshold the detection is treated as uncertain — user_language is not
-# stored, auto-translation is not triggered, and LanguageCheckGuardRail enforces
-# service-language (English) output only.
+# Minimum detection confidence to act on a detected language; below this, language rules are skipped.
 LANGUAGE_DETECTION_CONFIDENCE_THRESHOLD=0.80
-
-# Languages the service is always permitted to respond in, regardless of user
-# input language. Defaults to English — the service primary language.
-# Override to add additional supported languages: SUPPORTED_OUTPUT_LANGUAGES=["en","zh-CN"]
+# BCP-47 codes the LLM may respond in; output in any other language is blocked.
 SUPPORTED_OUTPUT_LANGUAGES=["en"]
-
-# Governance-approved input languages the service can actively serve.
-# A non-English language listed here receives:
-#   • Auto-translation of the English LLM response into the user's language
-#   • LanguageCheckGuardRail validates output is in the user's language
-# Languages NOT listed receive an English-only response.
-# Extend only after governance approval, safety testing in the target language,
-# Cloud NLP moderation validation, and language-specific ban word configuration.
-# Example: SUPPORTED_INPUT_LANGUAGES=["en","es","zh-CN"]
+# User input languages that trigger auto-translation back to the user's detected language.
 SUPPORTED_INPUT_LANGUAGES=["en"]
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
-# Accepts plain host:port (redis:// prefix is added automatically) or a full URL.
+# Accepts plain host:port (redis:// prefix added automatically) or a full Redis URL.
 REDIS_HOST=127.0.0.1:6379
 
 # ── Pub/Sub ───────────────────────────────────────────────────────────────────
+# Pub/Sub topic name used to deliver pipeline responses back to the responder service.
 QUEUE_TOPIC=adk_chat_messages
-
-# Set to target the local Pub/Sub emulator during development.
-# PUBSUB_EMULATOR_HOST also acts as the local-dev signal: when set, the app uses
-# InMemorySessionService instead of VertexAiSessionService, and the Vertex AI Search
-# tool is optional (DATASTORE_ID may be left empty for guardrail-only testing).
-# Leave empty (or remove) when deploying to real GCP.
+# Local Pub/Sub emulator address; also signals local-dev mode (uses InMemorySessionService, optional datastore).
 PUBSUB_EMULATOR_HOST=127.0.0.1:8406
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
-# Redis TTL (seconds) for WebSocket session status keys.
-# Must be long enough to cover the full pipeline round-trip for slow queries.
+# Redis TTL (seconds) for status:{session_id} presence keys; must exceed the full pipeline round-trip time.
 WS_SESSION_TTL_SECONDS=6000
 
+# ── WebSocket inbox (lost-first-reply buffer) ─────────────────────────────────
+# Set to false to disable inbox buffering; undeliverable replies return 503 so Pub/Sub retries.
+WS_INBOX_ENABLED=true
+# Max time (seconds) a buffered reply lives in Redis before being discarded.
+WS_INBOX_TTL_SECONDS=120
+# Per-session cap on buffered messages; oldest entries are trimmed when the cap is exceeded.
+WS_INBOX_MAX_MESSAGES=20
+
 # ── HTTP / CORS ───────────────────────────────────────────────────────────────
-# Comma-separated list of allowed origins. Wildcards ("*") are REJECTED at
-# startup because allow_credentials=True is incompatible with a wildcard origin
-# (CORS spec violation). Always set explicit origins.
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000
+# Comma-separated allowed origins; wildcards are rejected because allow_credentials=true requires explicit origins.
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:4000,http://localhost:3000,http://localhost:8000
 
-# ─── Observability (GCP Cloud Trace + Cloud Logging) ──────────────────────────
+# ── Observability (GCP Cloud Trace + Cloud Logging) ───────────────────────────
+# Master switch; set to false to disable all OTel tracing and instrumentation.
 OBSERVABILITY_ENABLED=true
+# Service name applied to all OTel spans and log records.
 OTEL_SERVICE_NAME=dcs_chatbot
-
-# Export OTel spans to GCP Cloud Trace and log records to GCP Cloud Logging.
-# Set to false for local dev without GCP credentials — the app still starts.
+# Exports spans to Cloud Trace and logs to Cloud Logging; set false for local dev without GCP credentials.
 OBSERVABILITY_EXPORT_TO_GCP=true
-
-# Sampling: 1.0 = record every trace. Lower in prod once volume is real (e.g. 0.1).
+# Fraction of traces sampled (1.0 = all, 0.1 = 10%).
 OBSERVABILITY_SAMPLE_RATIO=1.0
-
-# Redact PII from span attributes / log messages before export. Always true in prod.
+# Redacts PII from span attributes and log messages before they leave the process.
 OBSERVABILITY_REDACT_PII=true
-
-# Log format. "json" recommended in prod for Cloud Logging structured log correlation.
+# Log output format: 'json' for Cloud Logging correlation, 'text' for local dev readability.
 LOG_FORMAT=json
-
-# Cursor file used by monitoring/gemini_eval_gcp.py to track the last evaluated entry.
+# File path used by the eval pipeline to track the last processed Cloud Logging entry timestamp.
 EVAL_CURSOR_FILE=cursor.json
 
 # ── Guardrail Kill Switches ───────────────────────────────────────────────────
-# JSON list of guardrail class names to disable at startup (emergency use only).
-# Members of NON_DISABLEABLE_GUARDRAILS (SecretsInputGuardRail, SecretsOutputGuardRail,
-# JailbreakGuardRail, DlpInputGuardRail, DlpOutputGuardRail, GroundednessChecker,
-# SecretsInputPreCheckGuardRail) are silently ignored — they cannot be disabled.
-# Every effective entry emits a CRITICAL log at startup.
-# Example: DISABLED_GUARDRAILS=["CitizenReadabilityOutputGuardRail"]
+# JSON list of guardrail class names to disable; SecretsInputGuardRail, JailbreakGuardRail, and DlpOutputGuardRail cannot be disabled.
 DISABLED_GUARDRAILS=[]
