@@ -11,7 +11,7 @@ _SECRETS_BLOCK_MSG = (
 )
 
 _OUTPUT_SECRETS_BLOCK_MSG = (
-    "I'm unable to provide that response. "
+    "I'm unable to share that information. "
     "Please contact Service NSW for assistance."
 )
 
@@ -108,6 +108,11 @@ _JAILBREAK_BLOCK_MSG = (
     "Please rephrase your query if you intended something specific."
 )
 
+_JAILBREAK_OUTPUT_BLOCK_MSG = (
+    "I'm unable to provide a safe response to that request. "
+    "Please contact Service NSW for assistance."
+)
+
 _HARMFUL_INTENT_BLOCK_MSG = (
     "I'm unable to assist with requests that may facilitate harmful, fraudulent, "
     "or illegal activity. If you have a legitimate question about NSW Government "
@@ -157,6 +162,7 @@ ALL_BLOCK_MESSAGES: frozenset = frozenset({
     _RELEVANCY_BLOCK_MSG,
     _GROUNDEDNESS_BLOCK_MSG,
     _JAILBREAK_BLOCK_MSG,
+    _JAILBREAK_OUTPUT_BLOCK_MSG,
     _NSW_COMPLIANCE_BLOCK_MSG,
     _OUTPUT_TOO_LONG_MSG,
     _COPYRIGHT_BLOCK_MSG,
@@ -172,6 +178,7 @@ SECURITY_BLOCK_MESSAGES: frozenset = frozenset({
     _OUTPUT_SECRETS_BLOCK_MSG,
     _TOPIC_BLOCK_MSG,
     _JAILBREAK_BLOCK_MSG,
+    _JAILBREAK_OUTPUT_BLOCK_MSG,
     _BIAS_BLOCK_MSG,
     _BAN_WORDS_BLOCK_MSG,
     _HARMFUL_INTENT_BLOCK_MSG,

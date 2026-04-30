@@ -126,28 +126,25 @@ WS_SESSION_TTL_SECONDS=6000
 # (CORS spec violation). Always set explicit origins.
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000
 
-# ─── Observability (Arize Phoenix Cloud) ──────────────────────────────────────
+# ─── Observability (GCP Cloud Trace + Cloud Logging) ──────────────────────────
 OBSERVABILITY_ENABLED=true
 OTEL_SERVICE_NAME=dcs_chatbot
 
-# Phoenix Cloud endpoint + API key. Get the key from
-# https://app.phoenix.arize.com → Settings → API Keys
-PHOENIX_ENDPOINT=https://app.phoenix.arize.com
-PHOENIX_API_KEY=
-PHOENIX_PROJECT_NAME=dcs-chat
+# Export OTel spans to GCP Cloud Trace and log records to GCP Cloud Logging.
+# Set to false for local dev without GCP credentials — the app still starts.
+OBSERVABILITY_EXPORT_TO_GCP=true
 
-# These two are read by the arize-phoenix-client SDK directly,
-# used by monitoring/gemini_eval.py:
-PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com
-PHOENIX_CLIENT_HEADERS=api_key=
-
-# Sampling: 1.0 = all traces. Drop to 0.1 in prod once volume is real.
+# Sampling: 1.0 = record every trace. Lower in prod once volume is real (e.g. 0.1).
 OBSERVABILITY_SAMPLE_RATIO=1.0
+
+# Redact PII from span attributes / log messages before export. Always true in prod.
 OBSERVABILITY_REDACT_PII=true
+
+# Log format. "json" recommended in prod for Cloud Logging structured log correlation.
 LOG_FORMAT=json
 
-# Optional: also export to GCP Cloud Trace
-OBSERVABILITY_EXPORT_TO_GCP=false
+# Cursor file used by monitoring/gemini_eval_gcp.py to track the last evaluated entry.
+EVAL_CURSOR_FILE=cursor.json
 
 # ── Guardrail Kill Switches ───────────────────────────────────────────────────
 # JSON list of guardrail class names to disable at startup (emergency use only).

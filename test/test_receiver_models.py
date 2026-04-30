@@ -1,20 +1,11 @@
-"""
-Tests for receiver/models.py:
-  - ChatRequest
-  - PubSubMessage
-  - PubSubEnvelope
-
-Also tests the receiver API validation patterns (User-ID format, session-ID format).
-"""
+"""Tests for receiver/models.py (ChatRequest, PubSubMessage, PubSubEnvelope) and receiver API validation patterns."""
 
 import pytest
 from unittest.mock import patch, MagicMock
 import pydantic
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ChatRequest
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- ChatRequest ---
 
 class TestChatRequest:
     @pytest.fixture(autouse=True)
@@ -76,9 +67,7 @@ class TestChatRequest:
         assert "14(a)" in req.user_input
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PubSubMessage
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- PubSubMessage ---
 
 class TestPubSubMessage:
     def test_valid_message(self):
@@ -115,9 +104,7 @@ class TestPubSubMessage:
             PubSubMessage(data="dGVzdA==", messageId="1")  # missing publishTime
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PubSubEnvelope
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- PubSubEnvelope ---
 
 class TestPubSubEnvelope:
     def test_valid_envelope(self):

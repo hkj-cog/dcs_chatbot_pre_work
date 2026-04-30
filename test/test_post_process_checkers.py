@@ -1,9 +1,4 @@
-"""
-Tests for all 3 post-process checkers:
-  - GroundednessChecker
-  - RelevancyChecker
-  - CopyrightComplianceChecker
-"""
+"""Tests for all 3 post-process checkers: GroundednessChecker, RelevancyChecker, CopyrightComplianceChecker."""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,9 +10,7 @@ from guardrails.constants import (
 )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GroundednessChecker
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- GroundednessChecker ---
 
 class TestGroundednessChecker:
     @pytest.fixture
@@ -104,9 +97,7 @@ class TestGroundednessChecker:
         assert result == self.ANSWER
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# RelevancyChecker
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- RelevancyChecker ---
 
 class TestRelevancyChecker:
     @pytest.fixture
@@ -183,9 +174,7 @@ class TestRelevancyChecker:
         assert result == self.ANSWER
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CopyrightComplianceChecker
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- CopyrightComplianceChecker ---
 
 class TestCopyrightComplianceChecker:
     @pytest.fixture

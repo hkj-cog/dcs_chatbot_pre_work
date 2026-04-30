@@ -1,8 +1,4 @@
-"""
-Session-level threat tracking via a Redis sliding window.
-Detects multi-turn jailbreak patterns where individual messages pass but cumulative
-behaviour is suspicious. Fail-open on Redis errors — per-message guardrails still enforce safety.
-"""
+"""Session-level threat tracking via Redis sliding window. Detects cumulative multi-turn jailbreak patterns. Fail-open."""
 
 import json
 import time

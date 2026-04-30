@@ -1,10 +1,4 @@
-"""
-Tests for guardrails/regex_utils.py
-
-Covers: secret patterns, jailbreak patterns, entropy detection, normalise,
-        matches_banned_word, extract_tool_response_text, redact_tool_response,
-        expand_inflections, check_banned_words_tiered, check_banned_words.
-"""
+"""Tests for guardrails/regex_utils.py: secret patterns, jailbreak patterns, entropy detection, normalise, ban-word matching, and tool response redaction."""
 
 import pytest
 from guardrails.regex_utils import (
@@ -59,7 +53,7 @@ class TestDetectHighEntropySecrets:
         # Random base64-ish string with api_key context
         text = "api_key=xK9mP2nL8qR5vT3wY7aB4cD6eF1gH0j"
         result = detect_high_entropy_secrets(text)
-        assert result == ["HIGH_ENTROPY_SECRET"]
+        assert result == ["HIGH_ENTROPY_SECRET:api_key"]
 
     def test_low_entropy_after_keyword_not_flagged(self):
         # "password=aaaaaaaaaa" — low entropy
@@ -70,7 +64,7 @@ class TestDetectHighEntropySecrets:
     def test_secret_key_context_detected(self):
         text = "secret_key=Xk9Mp2nL8qR5vT3wY7aB4cD6eF1gHZz"
         result = detect_high_entropy_secrets(text)
-        assert result == ["HIGH_ENTROPY_SECRET"]
+        assert result == ["HIGH_ENTROPY_SECRET:secret_key"]
 
 
 # ─── redact_secrets ───────────────────────────────────────────────────────────

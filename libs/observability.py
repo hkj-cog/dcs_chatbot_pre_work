@@ -1,13 +1,4 @@
-"""
-Single source of truth for observability bootstrap.
-
-* Builds a TracerProvider with proper Resource attributes.
-* Configures Phoenix Cloud (or self-hosted) and optional GCP Cloud Trace exporters.
-* Applies parent-based ratio sampling.
-* Instruments FastAPI and Google ADK exactly once.
-* Idempotent. Fail-soft: any exporter/instrumentor error is logged and the app
-  keeps running without that exporter.
-"""
+"""Bootstraps OTel TracerProvider, GCP exporters, ratio sampling, and FastAPI instrumentation. Idempotent, fail-soft."""
 from __future__ import annotations
 
 import logging
@@ -31,33 +22,19 @@ _log = logging.getLogger("dcs_chatbot.observability")
 
 
 def _build_resource(settings) -> Resource:
+    # Builds an OTel Resource with service name, namespace, version, and deploy environment.
     return Resource.create(
         {
             "service.name": settings.service_name,
             "service.namespace": "dcs",
             "service.version": os.getenv("SERVICE_VERSION", "dev"),
             "deployment.environment": os.getenv("DEPLOY_ENV", "local"),
-            "phoenix.project.name": settings.phoenix_project_name,
         }
     )
 
 
-def _attach_phoenix(provider: TracerProvider, settings) -> None:
-    if not settings.phoenix_endpoint:
-        _log.info("[Observability] PHOENIX_ENDPOINT empty — Phoenix exporter skipped.")
-        return
-    try:
-        from libs.phoenix_tracer import init_phoenix
-        init_phoenix(
-            settings.phoenix_endpoint,
-            api_key=settings.phoenix_api_key,
-            tracer_provider=provider,
-        )
-    except Exception as e:  # pragma: no cover
-        _log.warning(f"[Observability] Phoenix attach failed: {e}")
-
-
 def _attach_gcp(provider: TracerProvider) -> None:
+    # Attaches Cloud Trace span exporter and Cloud Logging log bridge; both fail-soft.
     try:
         from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -84,16 +61,8 @@ def _attach_gcp(provider: TracerProvider) -> None:
         _log.warning(f"[Observability] GCP log bridge attach failed: {e}")
 
 
-def _instrument_adk(provider: TracerProvider) -> None:
-    try:
-        from openinference.instrumentation.google_adk import GoogleADKInstrumentor
-        GoogleADKInstrumentor().instrument(tracer_provider=provider)
-        _log.info("[Observability] GoogleADKInstrumentor attached.")
-    except Exception as e:  # pragma: no cover
-        _log.warning(f"[Observability] GoogleADKInstrumentor failed: {e}")
-
-
 def _instrument_fastapi(app: FastAPI, provider: TracerProvider) -> None:
+    # Wraps FastAPI with OTel auto-instrumentation so all HTTP spans are captured.
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
@@ -124,47 +93,31 @@ def init_observability(
     )
     trace.set_tracer_provider(provider)
 
-    _attach_phoenix(provider, settings)
     if settings.observability_export_to_gcp:
         _attach_gcp(provider)
     for sp in extra_processors or []:
         provider.add_span_processor(sp)
 
-    _instrument_adk(provider)
     if app is not None:
         _instrument_fastapi(app, provider)
 
     _tracer_provider = provider
     _initialized = True
 
-    mode = "cloud" if settings.phoenix_api_key else ("self-hosted" if settings.phoenix_endpoint else "off")
     _log.info(
-        "[Observability] Ready: phoenix_mode=%s endpoint=%s gcp=%s sample=%.2f service=%s project=%s",
-        mode,
-        settings.phoenix_endpoint or "<none>",
+        "[Observability] Ready: gcp=%s sample=%.2f service=%s",
         settings.observability_export_to_gcp,
         settings.observability_sample_ratio,
         settings.service_name,
-        settings.phoenix_project_name,
     )
     return provider
 
 
 def get_status() -> dict:
-    """Returned by /healthz. Never includes the API key value."""
+    """Returned by /healthz."""
     settings = get_settings()
-    if settings.phoenix_api_key:
-        mode = "cloud"
-    elif settings.phoenix_endpoint:
-        mode = "self-hosted"
-    else:
-        mode = "off"
     return {
         "enabled": settings.observability_enabled and _initialized,
-        "phoenix_mode": mode,
-        "phoenix_endpoint": settings.phoenix_endpoint or None,
-        "phoenix_project": settings.phoenix_project_name,
-        "phoenix_api_key_set": bool(settings.phoenix_api_key),
         "gcp_export": settings.observability_export_to_gcp,
         "sample_ratio": settings.observability_sample_ratio,
         "service": settings.service_name,
@@ -173,6 +126,7 @@ def get_status() -> dict:
 
 
 def record_exception_on_span(exc: BaseException, *, escaped: bool = True) -> None:
+    # Records the exception on the active span and marks it ERROR; no-ops when no span is recording.
     span = trace.get_current_span()
     if span is None or not span.is_recording():
         return
@@ -182,32 +136,21 @@ def record_exception_on_span(exc: BaseException, *, escaped: bool = True) -> Non
 
 @contextmanager
 def with_session_attrs(*, session_id: Optional[str], user_id: Optional[str]) -> Iterator[None]:
-    """
-    Tags the active span with session.id / user.id and propagates them via
-    OpenInference's `using_attributes` so downstream ADK spans inherit them.
-    """
+    """Tags the active span with session.id / user.id so downstream ADK spans inherit them."""
     span = trace.get_current_span()
     if span and span.is_recording():
         if session_id:
             span.set_attribute("session.id", str(session_id))
         if user_id:
             span.set_attribute("user.id", str(user_id))
-
-    try:
-        from openinference.instrumentation import using_attributes
-    except Exception:
-        yield
-        return
-    with using_attributes(session_id=str(session_id) if session_id else "", user_id=user_id or ""):
-        yield
+    yield
 
 
-def _reset_for_tests() -> None:  # pragma: no cover
+def _reset_for_tests() -> None:
     global _initialized, _tracer_provider
     _initialized = False
     _tracer_provider = None
-    # Reset the OTel global provider so tests can each install their own TracerProvider.
-    # Accessing private OTel internals is intentional here — test-only helper.
+    # Resets OTel global so each test can install its own provider (private internals access is intentional).
     import opentelemetry.trace as _otel_trace
     from opentelemetry.util._once import Once
     _otel_trace._TRACER_PROVIDER = None

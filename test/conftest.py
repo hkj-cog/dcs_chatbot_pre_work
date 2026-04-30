@@ -1,24 +1,14 @@
-"""
-Shared pytest fixtures for DCS chatbot unit tests.
-
-IMPORTANT: os.environ must be set at the top of this file, before any project
-imports, because libs/redis_manager.py calls get_settings() at module level.
-The conda/GCP environment may inject variables (e.g. GOOGLE_GENAI_USE_VERTEXAI)
-that are unknown to the Settings model and cause ValidationError on import.
-"""
+"""Shared pytest fixtures. env vars must be set before any project imports (get_settings() runs at module level)."""
 
 import os
 
-# ─── Minimal environment needed for Settings() to succeed ────────────────────
-# Must run before any libs.* or guardrails.* imports.
+# Minimal env for Settings() — must run before any libs.* or guardrails.* imports.
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
 os.environ.setdefault("QUEUE_TOPIC", "test-topic")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("REDIS_HOST", "127.0.0.1:6379")
 
-# Remove GCP SDK auto-injected variables that pydantic-settings treats as extra
-# fields and rejects.  These are set by the conda/Vertex AI environment and are
-# not part of the application's Settings schema.
+# Remove GCP SDK auto-injected vars that pydantic-settings rejects as unknown extra fields.
 for _var in ("GOOGLE_GENAI_USE_VERTEXAI",):
     os.environ.pop(_var, None)
 

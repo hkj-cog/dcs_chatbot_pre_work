@@ -2,7 +2,7 @@
 from typing import Optional
 
 from guardrails.base import OutputGuardRailBase, GuardRailResult
-from guardrails.constants import _OUTPUT_BLOCK_MSG
+from guardrails.constants import _JAILBREAK_OUTPUT_BLOCK_MSG
 from guardrails.utils import JAILBREAK_REGEX_PATTERNS
 from libs.logger import GuardRailEvent, log_guardrail_event
 
@@ -23,7 +23,7 @@ class JailbreakOutputGuardRail(OutputGuardRailBase):
                     reason=f"Prompt-injection pattern detected in LLM output: {pattern.pattern[:80]}",
                     # snippet omitted: runs before DlpOutputGuardRail so text is not yet DLP-redacted
                 ))
-                return GuardRailResult(is_blocked=True, blocked_reason=_OUTPUT_BLOCK_MSG)
+                return GuardRailResult(is_blocked=True, blocked_reason=_JAILBREAK_OUTPUT_BLOCK_MSG)
 
         log_guardrail_event(GuardRailEvent(
             guardrail_name="JailbreakOutputGuardRail",

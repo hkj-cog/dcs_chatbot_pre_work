@@ -43,10 +43,7 @@ def parse_composite_verdict(output: str, key: str) -> str:
 
 
 def validate_composite_verdict_format(output: str, expected_keys: list) -> None:
-    """
-    Asserts the composite judge output has exactly the expected verdict lines with single-token values.
-    Raises ValueError on free-text or missing lines, closing the prompt-injection echo vector.
-    """
+    """Asserts verdict lines match expected keys with single-token values; raises ValueError otherwise."""
     lines = [ln.strip() for ln in output.splitlines() if ln.strip()]
     if len(lines) != len(expected_keys):
         raise ValueError(

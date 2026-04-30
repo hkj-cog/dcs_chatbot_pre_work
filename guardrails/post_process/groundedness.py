@@ -54,12 +54,10 @@ Answer with EXACTLY one of these three words:
 
 
 class GroundednessChecker:
-    """
-    LLM judge enforcing 'No citation → No response'. PARTIALLY_GROUNDED treated as NOT_GROUNDED.
-    Fail-closed — most critical guardrail.
-    """
+    """LLM judge enforcing 'no citation → no response'. PARTIALLY_GROUNDED treated as NOT_GROUNDED. Fail-closed."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the groundedness LLM judge.
         self._chain = llm_chain(model_id, location, _GROUNDEDNESS_PROMPT)
 
     # Runs the groundedness LLM judge; blocks on NOT_GROUNDED, PARTIALLY_GROUNDED, or unexpected verdicts

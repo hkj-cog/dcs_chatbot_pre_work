@@ -46,10 +46,7 @@ try:
     # Configuration for the Push endpoint
     push_config = PushConfig(push_endpoint=FASTAPI_ENDPOINT)
 
-    # Configuration to limit retries
-    # max_delivery_attempts: must be between 5 and 100 on real GCP.
-    # Note: On the emulator, some versions allow as low as 2,
-    # but GCP Production requires a minimum of 5.
+    # max_delivery_attempts: must be 5-100 on GCP prod (emulator may allow lower values).
     dead_letter_policy = DeadLetterPolicy(
         dead_letter_topic=dlt_path, max_delivery_attempts=5
     )

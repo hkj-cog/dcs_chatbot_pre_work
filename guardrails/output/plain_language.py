@@ -6,8 +6,7 @@ from guardrails.base import OutputGuardRailBase, GuardRailResult
 from guardrails.utils import invoke_chain_raw, llm_chain
 from libs.logger import GuardRailEvent, log_guardrail_event, logger
 
-# Fast pre-screen: terms the LLM prompt explicitly targets. If none are present the LLM
-# call is skipped entirely. False negatives are acceptable — the list covers the known set.
+# Fast pre-screen regex — if no known jargon is present the LLM call is skipped entirely.
 _JARGON_RE = re.compile(
     r"\b(?:NDIS|BASIX|SEPP|EPA|LGA|BAS|PAYG|NCAT|AVO|IVF"
     r"|statutory\s+declaration|encumbrance|gazetted|promulgated"
@@ -51,6 +50,7 @@ class CitizenReadabilityOutputGuardRail(OutputGuardRailBase):
     """Checks and rewrites unexplained jargon/acronyms in LLM output for plain-language compliance. Fail-open."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the plain-language jargon detection judge.
         self._chain = llm_chain(model_id, location, _PLAIN_LANGUAGE_PROMPT)
 
     # Calls the plain-language LLM judge and returns the rewritten text when jargon is detected

@@ -86,8 +86,8 @@ opentelemetry-api==1.38.0
 opentelemetry-exporter-gcp-logging==1.11.0a0       # Google Cloud Logging
 opentelemetry-exporter-gcp-monitoring==1.11.0a0    # Google Cloud Monitoring
 opentelemetry-exporter-gcp-trace==1.11.0           # Google Cloud Trace
-opentelemetry-exporter-otlp-proto-common==1.38.0   # Arize Phoenix (stub active; see libs/phoenix_tracer.py)
-opentelemetry-exporter-otlp-proto-http==1.38.0     # Arize Phoenix (stub active; see libs/phoenix_tracer.py)
+opentelemetry-exporter-otlp-proto-common==1.38.0
+opentelemetry-exporter-otlp-proto-http==1.38.0
 opentelemetry-proto==1.38.0
 opentelemetry-resourcedetector-gcp==1.11.0a0
 opentelemetry-sdk==1.38.0
@@ -147,13 +147,7 @@ websockets==15.0.1
 wheel==0.46.3
 yarl==1.23.0
 zipp==3.23.0
-arize-phoenix-otel>=0.10.0
-arize-phoenix-client>=1.0.0
-arize-phoenix-evals>=2.2.0
-openinference-instrumentation>=0.1.46
-openinference-instrumentation-google-adk>=0.2.0
 opentelemetry-instrumentation>=0.59b0
 opentelemetry-instrumentation-fastapi>=0.59b0
 functions-framework>=3.7.0
 cloudevents>=1.11.0
-pandas>=2.2.0

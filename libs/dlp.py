@@ -8,8 +8,7 @@ from libs.logger import logger
 
 # ── Pre-DLP normalisation ─────────────────────────────────────────────────────
 
-# Normalises TFNs like "TFN-123456782-2024" to "NNN NNN NNN" so Cloud DLP's
-# AUSTRALIA_TAX_FILE_NUMBER checksum detector can recognise them.
+# Normalises TFN variants like "TFN-123456782-2024" to "NNN NNN NNN" for Cloud DLP's checksum detector.
 _TFN_EMBEDDED_RE = re.compile(
     r'(?i)\bTFN[-_/](\d{8,9})(?:[-_/]\w+)*\b'
 )
@@ -27,8 +26,7 @@ _ABN_RE = re.compile(
 )
 
 
-# Political/government terms that Cloud DLP's FIRST_NAME/LAST_NAME detectors misfire on.
-# Temporarily replaced with placeholders before DLP runs, then restored after.
+# Government terms that trigger Cloud DLP false positives; swapped with placeholders before DLP runs.
 _POLITICAL_TERMS_RE = re.compile(
     r'\b('
     r'NSW|ALP|LNP|Labor|Liberal|Greens|National|Coalition|Parliament|'

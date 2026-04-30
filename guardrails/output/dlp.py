@@ -12,6 +12,7 @@ class DlpOutputGuardRail(OutputGuardRailBase):
     """Runs Cloud DLP on the LLM response to redact PII. Fail-closed."""
 
     def __init__(self, dlp: GoogleDlp) -> None:
+        # Stores the shared DLP client used to redact PII from LLM output.
         self._dlp = dlp
 
     # Runs Cloud DLP on LLM output to redact PII; blocks the response if DLP is unavailable

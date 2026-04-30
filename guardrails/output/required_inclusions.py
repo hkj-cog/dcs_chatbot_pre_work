@@ -38,6 +38,7 @@ class RequiredInclusionsGuardRail(OutputGuardRailBase):
     """Appends the mandatory disclaimer on legal/medical/financial topics. Fail-safe: appends on judge error."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the required disclaimer LLM judge.
         self._chain = llm_chain(model_id, location, _REQUIRED_INCLUSIONS_PROMPT)
 
     # Invokes the disclaimer judge and appends (or unconditionally appends on error) the advisory text

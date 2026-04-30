@@ -124,11 +124,10 @@ def build_runner(dlp: GoogleDlp, settings=None) -> tuple:
         agent_name="adk_chatbot",
         agent_description="Helps users with questions by searching the NSW Government document datastore.",
 
-        # Phase 1: sequential — fast checks and text transforms (no LLM calls)
+        # Phase 1: sequential fast checks — BanWords runs before DateTimeInjector to scan the original text.
         input_guardrails=_filter_disabled([
             InputLengthGuardRail(max_chars=s.max_input_chars),
             SecretsInputGuardRail(),
-            DateTimeInjectorGuardRail(),
             BanWordsInputGuardRail(
                 banned_words=s.banned_words,
                 banned_words_soft=s.banned_words_soft,
@@ -136,6 +135,7 @@ def build_runner(dlp: GoogleDlp, settings=None) -> tuple:
                 context_allowlist=s.ban_word_context_allowlist,
                 threshold=s.ban_word_fuzzy_threshold,
             ),
+            DateTimeInjectorGuardRail(),
         ], disabled),
         # Phase 2: concurrent — independent LLM judges; crisis listed first to take priority on block
         parallel_input_guardrails=_filter_disabled([

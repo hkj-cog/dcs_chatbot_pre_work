@@ -6,8 +6,7 @@ from typing import List, Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Single source of truth for the shared judge model and policy version.
-# BUMP GUARDRAILS_VERSION whenever any guardrail prompt, threshold, or policy changes.
+# Single source for judge model and policy version — bump GUARDRAILS_VERSION on any policy change.
 JUDGE_MODEL = "gemini-2.5-flash"
 GUARDRAILS_VERSION = "1.1.0"
 
@@ -62,29 +61,15 @@ class Settings(BaseSettings):
     banned_words_warn_by_language: dict = Field(default={}, validation_alias="BANNED_WORDS_WARN_BY_LANGUAGE")
     disabled_guardrails: List[str] = Field(default=[], validation_alias="DISABLED_GUARDRAILS")
 
-    # --- observability ---
+    # --- observability (GCP Cloud Trace + Cloud Logging) ---
     # Master switch. Set to false to disable all tracing/instrumentation.
     observability_enabled: bool = Field(default=True, validation_alias="OBSERVABILITY_ENABLED")
 
     # OpenTelemetry resource attributes
     service_name: str = Field(default="dcs_chatbot", validation_alias="OTEL_SERVICE_NAME")
-    phoenix_project_name: str = Field(default="dcs-chat", validation_alias="PHOENIX_PROJECT_NAME")
 
-    # Phoenix Cloud OTLP HTTP base URL.
-    # - Phoenix Cloud:      https://app.phoenix.arize.com  (default)
-    # - Self-hosted Phoenix: e.g. http://localhost:6006
-    # - Empty string:       Phoenix exporter disabled
-    phoenix_endpoint: str = Field(
-        default="https://app.phoenix.arize.com",
-        validation_alias="PHOENIX_ENDPOINT",
-    )
-
-    # Phoenix Cloud API key. Sent as the `api_key` HTTP header on every span export.
-    # Leave empty for self-hosted Phoenix.
-    phoenix_api_key: str = Field(default="", validation_alias="PHOENIX_API_KEY")
-
-    # Optional GCP Cloud Trace exporter (off by default — Phoenix is the primary backend).
-    observability_export_to_gcp: bool = Field(default=False, validation_alias="OBSERVABILITY_EXPORT_TO_GCP")
+    # Export OTel spans + logs to GCP; set false for local dev without GCP credentials.
+    observability_export_to_gcp: bool = Field(default=True, validation_alias="OBSERVABILITY_EXPORT_TO_GCP")
 
     # ParentBased(TraceIdRatioBased(...)). 1.0 = sample everything, 0.1 = 10%.
     observability_sample_ratio: float = Field(default=1.0, validation_alias="OBSERVABILITY_SAMPLE_RATIO")
@@ -95,7 +80,7 @@ class Settings(BaseSettings):
     # Log format. "json" recommended in prod for trace<->log correlation.
     observability_log_format: Literal["json", "text"] = Field(default="json", validation_alias="LOG_FORMAT")
 
-    # Cursor file used by the Phoenix evaluator to track processed spans.
+    # Cursor file used by the GCP Cloud Logging evaluator to track processed entries.
     eval_cursor_file: str = Field(default="cursor.json", validation_alias="EVAL_CURSOR_FILE")
 
     @field_validator(
@@ -106,6 +91,7 @@ class Settings(BaseSettings):
     )
     @classmethod
     def parse_json_list(cls, v):
+        # Parses list fields from JSON strings when set via environment variables.
         if isinstance(v, str):
             return json.loads(v)
         return v
@@ -116,11 +102,13 @@ class Settings(BaseSettings):
     )
     @classmethod
     def parse_json_dict(cls, v):
+        # Parses dict fields from JSON strings when set via environment variables.
         if isinstance(v, str):
             return json.loads(v)
         return v
 
     def model_post_init(self, __context) -> None:
+        # Logs warnings for missing critical config and CRITICAL for any active kill-switches.
         from libs.logger import logger as _log
         if not self.banned_words:
             _log.warning(
@@ -152,18 +140,6 @@ class Settings(BaseSettings):
                     "This reduces safety coverage. Ensure this is intentional and temporary."
                 )
 
-        # Phoenix Cloud sanity check
-        if (
-            self.observability_enabled
-            and self.phoenix_endpoint
-            and "phoenix.arize.com" in self.phoenix_endpoint
-            and not self.phoenix_api_key
-        ):
-            _log.warning(
-                "[Config] PHOENIX_ENDPOINT points at Phoenix Cloud but PHOENIX_API_KEY is empty. "
-                "Span exports will be rejected with 401. Set PHOENIX_API_KEY in .env."
-            )
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -173,4 +149,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    # Cached singleton; call get_settings.cache_clear() between tests to reset.
     return Settings()

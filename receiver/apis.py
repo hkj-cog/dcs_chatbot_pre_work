@@ -132,8 +132,7 @@ async def save_chat(
         request_id=request_id,
     )
 
-    # Capture the active OTel context so the background pipeline span is a child
-    # of the HTTP request span.
+    # Captures OTel context so the background pipeline span is a child of the HTTP request span.
     otel_ctx = otel_context.get_current()
 
     with with_session_attrs(session_id=session_id, user_id=user_id):

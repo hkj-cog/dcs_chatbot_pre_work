@@ -1,10 +1,4 @@
-"""
-Pluggable redaction for prompts/responses before they are recorded as span
-attributes or shipped to logs. Default rules cover common PII and secret shapes;
-override by passing a custom list of (pattern, replacement) tuples.
-
-This is a defence-in-depth layer; the primary PII pipeline is libs/dlp.py.
-"""
+"""Pluggable redaction layer for span attributes and logs. Defence-in-depth; primary PII pipeline is libs/dlp.py."""
 from __future__ import annotations
 
 import re

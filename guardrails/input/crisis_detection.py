@@ -49,13 +49,10 @@ Answer with EXACTLY one word: CRISIS or SAFE"""
 
 
 class CrisisDetectionInputGuardRail(GuardRail):
-    """
-    Detects self-harm / crisis signals and returns support resources instead of a block.
-    Layer 1: synchronous regex (no LLM). Layer 2: LLM judge for nuanced signals.
-    Fail-open on LLM error — regex already ran and the query is not a high-confidence crisis.
-    """
+    """Two-layer crisis detection (regex then LLM judge); returns support resources instead of blocking. Fail-open."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the LLM-based crisis detection judge.
         self._chain = llm_chain(model_id, location, _CRISIS_DETECTION_PROMPT)
 
     # Checks user input for crisis signals via regex then LLM; returns support resources instead of blocking

@@ -1,14 +1,4 @@
-"""
-Tests for all 8 input guardrails:
-  - InputLengthGuardRail
-  - SecretsInputGuardRail
-  - DateTimeInjectorGuardRail
-  - BanWordsInputGuardRail
-  - JailbreakGuardRail
-  - CrisisDetectionInputGuardRail
-  - ImproperContentGuardRail
-  - CompositeInputJudgeGuardRail
-"""
+"""Tests for all 8 input guardrails: length, secrets, datetime injector, ban words, jailbreak, crisis, improper content, composite judge."""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -29,9 +19,7 @@ from guardrails.constants import (
 )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# InputLengthGuardRail
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- InputLengthGuardRail ---
 
 class TestInputLengthGuardRail:
     @pytest.fixture
@@ -89,9 +77,7 @@ class TestInputLengthGuardRail:
             assert not result.is_blocked
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SecretsInputGuardRail
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- SecretsInputGuardRail ---
 
 class TestSecretsInputGuardRail:
     @pytest.fixture
@@ -151,9 +137,7 @@ class TestSecretsInputGuardRail:
         assert not result.is_blocked
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# DateTimeInjectorGuardRail
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- DateTimeInjectorGuardRail ---
 
 class TestDateTimeInjectorGuardRail:
     @pytest.fixture
@@ -194,9 +178,7 @@ class TestDateTimeInjectorGuardRail:
         assert result.modified_text != ""
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# BanWordsInputGuardRail
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- BanWordsInputGuardRail ---
 
 class TestBanWordsInputGuardRail:
     @pytest.fixture
@@ -305,9 +287,7 @@ class TestBanWordsInputGuardRail:
         assert isinstance(result.is_blocked, bool)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# JailbreakGuardRail
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- JailbreakGuardRail ---
 
 class TestJailbreakGuardRail:
     @pytest.fixture
@@ -388,9 +368,7 @@ class TestJailbreakGuardRail:
         assert not result.is_blocked
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CrisisDetectionInputGuardRail
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- CrisisDetectionInputGuardRail ---
 
 class TestCrisisDetectionInputGuardRail:
     @pytest.fixture
@@ -471,9 +449,7 @@ class TestCrisisDetectionInputGuardRail:
         assert "Beyond Blue" in result.blocked_reason or "1300 22 4636" in result.blocked_reason
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ImproperContentGuardRail
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- ImproperContentGuardRail ---
 
 class TestImproperContentGuardRail:
     @pytest.fixture
@@ -526,9 +502,7 @@ class TestImproperContentGuardRail:
         assert result.is_blocked
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CompositeInputJudgeGuardRail
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- CompositeInputJudgeGuardRail ---
 
 class TestCompositeInputJudgeGuardRail:
     @pytest.fixture

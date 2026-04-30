@@ -107,6 +107,7 @@ class CompositeInputJudgeGuardRail(GuardRail):
     """Single LLM call covering Bias, Topic Restriction, and Harmful Intent. Fail-closed."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the composite input safety judge.
         self._chain = llm_chain(model_id, location, _COMPOSITE_INPUT_JUDGE_PROMPT)
 
     # Calls the composite LLM judge and routes the result to Bias, Topic, or HarmfulIntent block messages

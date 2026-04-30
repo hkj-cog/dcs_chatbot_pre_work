@@ -121,13 +121,10 @@ Provide ONLY the rewritten response text, with no preamble or explanation."""
 
 
 class CompositeOutputJudgeGuardRail(OutputGuardRailBase):
-    """
-    Single LLM call covering Bias, Politeness, Topic Restriction, and Prompt Injection.
-    When only politeness fails, attempts a tone rewrite before falling back to a block.
-    Fail-closed on LLM error or unparseable response.
-    """
+    """Single LLM call covering Bias, Politeness, Topic, and Injection. Rewrites tone before blocking on politeness alone."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the composite judge chain and a separate rewrite chain for politeness correction.
         self._chain = llm_chain(model_id, location, _COMPOSITE_OUTPUT_JUDGE_PROMPT)
         self._rewrite_chain = llm_chain(model_id, location, _POLITENESS_REWRITE_PROMPT)
 

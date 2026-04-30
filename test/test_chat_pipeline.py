@@ -1,12 +1,4 @@
-"""
-Unit tests for ChatPipeline — orchestration logic, gate enforcement, and regression
-coverage for all fixes applied in this session:
-  - PARTIAL_ANSWER no longer skips GroundednessChecker / CopyrightComplianceChecker
-  - Empty agent output falls back to _AGENT_ERROR_MSG (agent_output_complete set first)
-  - Pipeline timeout publishes _AGENT_ERROR_MSG via asyncio.timeout()
-  - Zero grounding references → score="low" + caveat appended without calling scorer
-  - Dual gate (dlp_input_complete + agent_output_complete) enforced in _step_publish
-"""
+"""Unit tests for ChatPipeline: orchestration logic, dual gate enforcement, timeout, and confidence scoring."""
 
 import asyncio
 import pytest
@@ -46,14 +38,14 @@ def make_pipeline() -> ChatPipeline:
         patch("services.chat_pipeline.RelevancyChecker"),
         patch("services.chat_pipeline.CopyrightComplianceChecker"),
         patch("services.chat_pipeline.SessionThreatTracker"),
-        patch("services.chat_pipeline.PhoenixTracer"),
+        patch("libs.pipeline_tracer.PipelineTracer"),
     ):
         settings = MagicMock()
         settings.google_cloud_location = "australia-southeast1"
         settings.session_threat_threshold = 5
         settings.session_threat_window_seconds = 3600
         settings.pipeline_timeout_seconds = 30
-        settings.phoenix_endpoint = ""
+        settings.observability_export_to_gcp = False
 
         p = ChatPipeline(
             runner=MagicMock(),
@@ -62,14 +54,13 @@ def make_pipeline() -> ChatPipeline:
             settings=settings,
         )
 
-    # Replace auto-created constructor mocks with async-capable pass-through mocks.
-    # Checkers return their input unchanged by default so tests can assert selectively.
+    # Replace constructor mocks with async pass-through stubs; checkers return input unchanged by default.
     p._scorer = AsyncMock(return_value="high")
     p._groundedness = AsyncMock(side_effect=lambda answer, **_: answer)
     p._relevancy = AsyncMock(side_effect=lambda question, answer, **_: answer)
     p._copyright = AsyncMock(side_effect=lambda answer, **_: answer)
     p._threat_tracker = AsyncMock()
-    p._phoenix = MagicMock()
+    p._pipeline_tracer = MagicMock()
     p._pipeline_timeout = 30
     return p
 
@@ -217,59 +208,59 @@ class TestStepPostProcess:
         """PARTIAL_ANSWER appends a redirect note but must NOT skip groundedness or copyright.
         This is the regression test for the ctx.final_content != pre bug."""
         partial = self.ANSWER + _MULTI_INTENT_NOTE
-        pipeline._relevancy = AsyncMock(return_value=partial)
-        pipeline._groundedness = AsyncMock(return_value=partial)
-        pipeline._copyright = AsyncMock(return_value=partial)
+        pipeline._relevancy.check = AsyncMock(return_value=partial)
+        pipeline._groundedness.check = AsyncMock(return_value=partial)
+        pipeline._copyright.check = AsyncMock(return_value=partial)
 
         ctx = self._ctx_with_refs(self.ANSWER)
         await pipeline._step_post_process(ctx)
 
-        pipeline._groundedness.assert_called_once()
-        pipeline._copyright.assert_called_once()
+        pipeline._groundedness.check.assert_called_once()
+        pipeline._copyright.check.assert_called_once()
         assert ctx.final_content == partial
 
     @pytest.mark.asyncio
     async def test_not_relevant_blocks_and_skips_groundedness(self, pipeline):
-        pipeline._relevancy = AsyncMock(return_value=_RELEVANCY_BLOCK_MSG)
+        pipeline._relevancy.check = AsyncMock(return_value=_RELEVANCY_BLOCK_MSG)
 
         ctx = self._ctx_with_refs(self.ANSWER)
         await pipeline._step_post_process(ctx)
 
         assert ctx.final_content == _RELEVANCY_BLOCK_MSG
-        pipeline._groundedness.assert_not_called()
-        pipeline._copyright.assert_not_called()
+        pipeline._groundedness.check.assert_not_called()
+        pipeline._copyright.check.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_relevant_passes_through_to_groundedness_and_copyright(self, pipeline):
-        pipeline._relevancy = AsyncMock(return_value=self.ANSWER)
-        pipeline._groundedness = AsyncMock(return_value=self.ANSWER)
-        pipeline._copyright = AsyncMock(return_value=self.ANSWER)
+        pipeline._relevancy.check = AsyncMock(return_value=self.ANSWER)
+        pipeline._groundedness.check = AsyncMock(return_value=self.ANSWER)
+        pipeline._copyright.check = AsyncMock(return_value=self.ANSWER)
 
         ctx = self._ctx_with_refs(self.ANSWER)
         await pipeline._step_post_process(ctx)
 
-        pipeline._groundedness.assert_called_once()
-        pipeline._copyright.assert_called_once()
+        pipeline._groundedness.check.assert_called_once()
+        pipeline._copyright.check.assert_called_once()
         assert ctx.final_content == self.ANSWER
 
     @pytest.mark.asyncio
     async def test_groundedness_block_takes_precedence_over_copyright(self, pipeline):
         """Both run concurrently; groundedness block wins when both checks have results."""
-        pipeline._relevancy = AsyncMock(return_value=self.ANSWER)
-        pipeline._groundedness = AsyncMock(return_value=_GROUNDEDNESS_BLOCK_MSG)
-        pipeline._copyright = AsyncMock(return_value=self.ANSWER)
+        pipeline._relevancy.check = AsyncMock(return_value=self.ANSWER)
+        pipeline._groundedness.check = AsyncMock(return_value=_GROUNDEDNESS_BLOCK_MSG)
+        pipeline._copyright.check = AsyncMock(return_value=self.ANSWER)
 
         ctx = self._ctx_with_refs(self.ANSWER)
         await pipeline._step_post_process(ctx)
 
         assert ctx.final_content == _GROUNDEDNESS_BLOCK_MSG
         # Copyright still ran — it executes in parallel with groundedness
-        pipeline._copyright.assert_called_once()
+        pipeline._copyright.check.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_no_context_chunks_runs_relevancy_only(self, pipeline):
         """No datastore context → relevancy runs, groundedness and copyright must not."""
-        pipeline._relevancy = AsyncMock(return_value=self.ANSWER)
+        pipeline._relevancy.check = AsyncMock(return_value=self.ANSWER)
 
         ctx = make_ctx()
         ctx.final_content = self.ANSWER
@@ -277,9 +268,9 @@ class TestStepPostProcess:
 
         await pipeline._step_post_process(ctx)
 
-        pipeline._relevancy.assert_called_once()
-        pipeline._groundedness.assert_not_called()
-        pipeline._copyright.assert_not_called()
+        pipeline._relevancy.check.assert_called_once()
+        pipeline._groundedness.check.assert_not_called()
+        pipeline._copyright.check.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_block_message_content_skips_all_checks(self, pipeline):
@@ -288,9 +279,9 @@ class TestStepPostProcess:
 
         await pipeline._step_post_process(ctx)
 
-        pipeline._relevancy.assert_not_called()
-        pipeline._groundedness.assert_not_called()
-        pipeline._copyright.assert_not_called()
+        pipeline._relevancy.check.assert_not_called()
+        pipeline._groundedness.check.assert_not_called()
+        pipeline._copyright.check.assert_not_called()
 
 
 # ── _step_confidence_score: zero-reference caveat ────────────────────────────
@@ -307,7 +298,7 @@ class TestStepConfidenceScore:
 
         assert ctx.score == "low"
         assert "Please verify" in ctx.final_content
-        pipeline._scorer.assert_not_called()
+        pipeline._scorer.invoke.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_zero_references_block_message_unchanged(self, pipeline):
@@ -321,24 +312,24 @@ class TestStepConfidenceScore:
 
         assert ctx.score is None
         assert ctx.final_content == original
-        pipeline._scorer.assert_not_called()
+        pipeline._scorer.invoke.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_with_references_calls_scorer(self, pipeline):
-        pipeline._scorer = AsyncMock(return_value="high")
+        pipeline._scorer.invoke = AsyncMock(return_value="high")
         ctx = make_ctx()
         ctx.final_content = "The fee is $52."
         ctx.references = [Reference(chunk="Fee is $52.", url="", title="")]
 
         await pipeline._step_confidence_score(ctx)
 
-        pipeline._scorer.assert_called_once()
+        pipeline._scorer.invoke.assert_called_once()
         assert ctx.score == "high"
         assert "Please verify" not in ctx.final_content
 
     @pytest.mark.asyncio
     async def test_low_score_appends_caveat(self, pipeline):
-        pipeline._scorer = AsyncMock(return_value="low")
+        pipeline._scorer.invoke = AsyncMock(return_value="low")
         ctx = make_ctx()
         ctx.final_content = "The fee is approximately $52."
         ctx.references = [Reference(chunk="Fee is $52.", url="", title="")]
@@ -350,7 +341,7 @@ class TestStepConfidenceScore:
 
     @pytest.mark.asyncio
     async def test_scorer_failure_sets_score_none(self, pipeline):
-        pipeline._scorer = AsyncMock(side_effect=Exception("LLM unavailable"))
+        pipeline._scorer.invoke = AsyncMock(side_effect=Exception("LLM unavailable"))
         ctx = make_ctx()
         ctx.final_content = "The fee is $52."
         ctx.references = [Reference(chunk="Fee is $52.", url="", title="")]

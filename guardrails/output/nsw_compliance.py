@@ -30,6 +30,7 @@ class NSWAIComplianceGuardRail(OutputGuardRailBase):
     """LLM judge checking AI transparency and scope per NSW AI Assurance Framework. Fail-closed."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the NSW AI Assurance Framework compliance judge.
         self._chain = llm_chain(model_id, location, _NSW_AI_COMPLIANCE_PROMPT)
 
     # Invokes the NSW AI Assurance Framework LLM judge to check transparency and scope compliance

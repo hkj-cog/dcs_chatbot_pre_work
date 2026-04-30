@@ -25,6 +25,7 @@ class CopyrightComplianceChecker:
     """Blocks verbatim reproduction of >50 words from source docs. Fail-open."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the copyright verbatim-reproduction judge.
         self._chain = llm_chain(model_id, location, _COPYRIGHT_PROMPT)
 
     # Invokes the LLM copyright judge; returns the block message if verbatim reproduction is detected

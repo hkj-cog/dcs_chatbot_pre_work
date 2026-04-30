@@ -18,9 +18,7 @@ HARMFUL_CATEGORIES = {
     "Sexually_Explicit",
 }
 
-# ─── Per-layer moderation thresholds ─────────────────────────────────────────
-# Input: more permissive — ambiguous government queries should not be falsely blocked.
-# Output: stricter — LLM-generated content is held to a higher standard.
+# Per-layer thresholds: input is lenient (avoid false positives), output is strict (LLM content standard).
 
 MODERATION_CATEGORIES_INPUT = {
     "Profanity":          0.5,
@@ -32,7 +30,6 @@ MODERATION_CATEGORIES_INPUT = {
     # 0.85 for INPUT: bereavement/estate/funeral queries are legitimate government topics.
     "Death_Harm_Tragedy": 0.85,
     # Violence/War_Conflict excluded from INPUT — citizens must ask about DV orders, ANZAC programs, etc.
-    # Checked on OUTPUT only: the LLM must not produce violent content but citizens can ask about it.
     # 0.9 for INPUT: defence-in-depth behind Gemini safety settings; avoids false positives on sexual-health queries.
     "Sexually_Explicit":  0.9,
 }

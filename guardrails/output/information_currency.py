@@ -44,13 +44,10 @@ Answer with EXACTLY one of: DISCLAIMER_NEEDED or NOT_NEEDED"""
 
 
 class InformationCurrencyGuardRail(OutputGuardRailBase):
-    """
-    Appends a currency/verification disclaimer to responses with time-sensitive fees or eligibility criteria.
-    Skips if RequiredInclusionsGuardRail already appended its disclaimer.
-    Fail-open on judge error — RequiredInclusions (fail-safe) covers critical legal/medical/financial domains.
-    """
+    """Appends a currency disclaimer to responses with time-sensitive fees or eligibility criteria. Fail-open."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the information currency disclaimer judge.
         self._chain = llm_chain(model_id, location, _INFORMATION_CURRENCY_PROMPT)
 
     # Invokes the LLM currency judge and appends the disclaimer if time-sensitive information is detected

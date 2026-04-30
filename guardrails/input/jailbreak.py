@@ -55,6 +55,7 @@ class JailbreakGuardRail(GuardRail):
     """Two-layer jailbreak detection: fast regex first, then semantic LLM judge. Fail-closed."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the semantic jailbreak LLM judge.
         self._chain = llm_chain(model_id, location, _JAILBREAK_JUDGE_PROMPT)
 
     # Applies regex patterns (including normalised text) then the LLM semantic judge to detect jailbreaks

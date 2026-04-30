@@ -10,10 +10,7 @@ from libs.logger import GuardRailEvent, log_guardrail_event, logger
 
 
 class LanguageCheckGuardRail(OutputGuardRailBase):
-    """
-    Blocks LLM output in a language that is neither a supported service language nor the user's detected language.
-    Skips when translation was requested (the translation step normalises language downstream).
-    """
+    """Blocks output in an unexpected language; skips when translation was requested."""
 
     # Detects output language and blocks if it falls outside the valid set for this session
     async def process(

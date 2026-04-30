@@ -28,6 +28,7 @@ class ToolResponseGuardRail:
         threshold: Optional[int] = None,
         dlp=None,
     ) -> None:
+        # Stores banned words, fuzzy threshold, and optional DLP client for tool response scanning.
         self._banned = [w.lower() for w in (banned_words or []) if w.strip()]
         if threshold is not None:
             self._threshold = threshold
@@ -43,6 +44,7 @@ class ToolResponseGuardRail:
         tool_context: ToolContext,
         tool_response: dict,
     ) -> Optional[dict]:
+        # Scans the tool response for secrets, jailbreak patterns, PII, banned words, and moderation categories.
         session_id = ""
         try:
             session_id = tool_context._invocation_context.session.id or ""

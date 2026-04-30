@@ -1,5 +1,4 @@
-# Structured JSON logging — GuardRailEvent dataclass and SIEM escalation helpers
-# Adds OpenTelemetry trace_id/span_id correlation; preserves the original API.
+# Structured JSON logging with OTel trace correlation, GuardRailEvent dataclass, and SIEM escalation helpers.
 import json
 import logging
 import sys
@@ -61,8 +60,7 @@ def setup_app_logger(name: str = "dcs_chatbot") -> logging.Logger:
     if logger.handlers:
         return logger
 
-    # Settings may not yet be importable on first call from inside Settings.model_post_init,
-    # so fall back to JSON if Settings() raises.
+    # Fall back to JSON if Settings isn't importable yet (e.g. during Settings.model_post_init).
     try:
         log_format = get_settings().observability_log_format
     except Exception:

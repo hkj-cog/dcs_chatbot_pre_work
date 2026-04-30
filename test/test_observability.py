@@ -1,6 +1,4 @@
-"""Unit tests for the observability bootstrap.
-
-These tests do not need a running Phoenix — they use an InMemorySpanExporter."""
+"""Tests for observability bootstrap using InMemorySpanExporter — no GCP credentials required."""
 from __future__ import annotations
 
 import pytest
@@ -32,7 +30,6 @@ def test_disabled_returns_none(monkeypatch):
 
 def test_enabled_creates_provider_and_emits_spans(monkeypatch):
     monkeypatch.setenv("OBSERVABILITY_ENABLED", "true")
-    monkeypatch.setenv("PHOENIX_ENDPOINT", "")  # disable Phoenix exporter (no network)
     monkeypatch.setenv("OBSERVABILITY_EXPORT_TO_GCP", "false")
     _clear_settings_cache()
 
@@ -52,7 +49,6 @@ def test_enabled_creates_provider_and_emits_spans(monkeypatch):
 
 def test_record_exception_marks_span_error(monkeypatch):
     monkeypatch.setenv("OBSERVABILITY_ENABLED", "true")
-    monkeypatch.setenv("PHOENIX_ENDPOINT", "")
     monkeypatch.setenv("OBSERVABILITY_EXPORT_TO_GCP", "false")
     _clear_settings_cache()
 
@@ -69,7 +65,6 @@ def test_record_exception_marks_span_error(monkeypatch):
 
 def test_with_session_attrs_sets_span_attributes(monkeypatch):
     monkeypatch.setenv("OBSERVABILITY_ENABLED", "true")
-    monkeypatch.setenv("PHOENIX_ENDPOINT", "")
     monkeypatch.setenv("OBSERVABILITY_EXPORT_TO_GCP", "false")
     _clear_settings_cache()
 

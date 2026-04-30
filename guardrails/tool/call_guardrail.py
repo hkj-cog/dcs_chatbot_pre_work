@@ -19,6 +19,7 @@ class ToolCallGuardRail:
         blocked_query_terms: Optional[List[str]] = None,
         threshold: int = 85,
     ) -> None:
+        # Normalises blocked query terms for fuzzy matching at call time.
         raw = blocked_query_terms if blocked_query_terms is not None else _DEFAULT_BLOCKED_QUERY_TERMS
         self._blocked = [t.lower() for t in raw if t.strip()]
         self._threshold = threshold
@@ -29,6 +30,7 @@ class ToolCallGuardRail:
         tool_args: dict,
         tool_context: ToolContext,
     ) -> Optional[dict]:
+        # Validates tool name, query length, and blocked terms before the ADK executes the tool.
         tool_name = tool.name if hasattr(tool, "name") else str(tool)
         session_id = ""
         try:

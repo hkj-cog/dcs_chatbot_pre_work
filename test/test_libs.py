@@ -1,19 +1,11 @@
-"""
-Tests for shared library modules:
-  - libs/validation.py     — SESSION_ID_RE, USER_ID_RE
-  - libs/dlp.py            — GoogleDlp
-  - libs/session_threat_tracker.py — SessionThreatTracker
-  - libs/logger.py         — GuardRailEvent, log_guardrail_event
-"""
+"""Tests for libs/validation, libs/dlp, libs/session_threat_tracker, and libs/logger."""
 
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# libs/validation.py
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- libs/validation.py ---
 
 class TestSessionIdRegex:
     from libs.validation import SESSION_ID_RE
@@ -95,9 +87,7 @@ class TestUserIdRegex:
         assert not self._matches("user!name")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# libs/dlp.py — GoogleDlp
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- libs/dlp.py — GoogleDlp ---
 
 class TestGoogleDlp:
     @pytest.fixture
@@ -187,19 +177,10 @@ class TestGoogleDlp:
         assert dlp is not None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# libs/session_threat_tracker.py
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- libs/session_threat_tracker.py ---
 
 class TestSessionThreatTracker:
-    """
-    SessionThreatTracker tests.
-
-    Note: `record_trigger` and `record_pii_event` import redis_manager locally
-    (`from libs.redis_manager import redis_manager`), so we patch
-    `libs.redis_manager.redis_manager` (the object itself) rather than the
-    module-level name in session_threat_tracker.
-    """
+    """Patches libs.redis_manager.redis_manager (not the module-level name) because the tracker imports it locally."""
 
     @pytest.fixture
     def mock_redis(self):
@@ -310,9 +291,7 @@ class TestSessionThreatTracker:
         assert f"threat:{session_id}" != f"pii_threat:{session_id}"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# libs/logger.py
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- libs/logger.py ---
 
 class TestLogger:
     def test_guardrail_event_dataclass(self):
@@ -359,9 +338,9 @@ class TestLogger:
             )
             log_guardrail_event(event)
         mock_warn.assert_called_once()
-        payload = json.loads(mock_warn.call_args[0][0])
-        assert payload["guardrail_event"]["guardrail_name"] == "TestGuardRail"
-        assert payload["guardrail_event"]["action"] == "block"
+        payload = mock_warn.call_args.kwargs["extra"]["guardrail_event"]
+        assert payload["guardrail_name"] == "TestGuardRail"
+        assert payload["action"] == "block"
 
     def test_log_guardrail_event_allow_calls_info(self):
         """Allow events must use logger.info (not warning) to reduce log noise."""
@@ -376,8 +355,8 @@ class TestLogger:
             )
             log_guardrail_event(event)
         mock_info.assert_called_once()
-        payload = json.loads(mock_info.call_args[0][0])
-        assert payload["guardrail_event"]["action"] == "allow"
+        payload = mock_info.call_args.kwargs["extra"]["guardrail_event"]
+        assert payload["action"] == "allow"
 
     def test_log_escalation_event_emits_valid_json(self):
         """Escalation events must be valid JSON with escalation_event key."""
@@ -390,7 +369,7 @@ class TestLogger:
                 reason="Attack detected",
             )
         mock_crit.assert_called_once()
-        payload = json.loads(mock_crit.call_args[0][0])
-        assert payload["escalation_event"]["session_id"] == "sess1"
-        assert payload["escalation_event"]["trigger_count"] == 5
-        assert payload["escalation_event"]["last_guardrail"] == "JailbreakGuardRail"
+        payload = mock_crit.call_args.kwargs["extra"]["escalation_event"]
+        assert payload["session_id"] == "sess1"
+        assert payload["trigger_count"] == 5
+        assert payload["last_guardrail"] == "JailbreakGuardRail"

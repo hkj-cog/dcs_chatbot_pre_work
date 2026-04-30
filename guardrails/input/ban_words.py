@@ -18,6 +18,7 @@ class BanWordsInputGuardRail(GuardRail):
         context_allowlist: Optional[List[str]] = None,
         threshold: Optional[int] = None,
     ) -> None:
+        # Pre-expands inflections and merges per-language word lists at construction time.
         from libs.config import get_settings
         s = get_settings()
         self._threshold = threshold if threshold is not None else s.ban_word_fuzzy_threshold

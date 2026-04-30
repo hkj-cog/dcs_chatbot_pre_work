@@ -1,6 +1,4 @@
-"""
-Tests for guardrails/base.py and guardrails/constants.py
-"""
+"""Tests for guardrails/base.py and guardrails/constants.py."""
 
 import pytest
 from guardrails.base import GuardRailResult, GuardRail, OutputGuardRailBase

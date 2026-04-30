@@ -1,9 +1,4 @@
-"""
-Tests for guardrails/llm_utils.py
-
-Covers: parse_composite_verdict, validate_composite_verdict_format,
-        invoke_chain (mocked), invoke_chain_raw (mocked).
-"""
+"""Tests for guardrails/llm_utils.py: parse_composite_verdict, validate_composite_verdict_format, invoke_chain, invoke_chain_raw."""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -74,7 +69,7 @@ class TestValidateCompositeVerdictFormat:
         validate_composite_verdict_format(self._VALID_OUTPUT_VERDICT, self._OUTPUT_KEYS)
 
     def test_wrong_line_count_raises(self):
-        output = "BIAS: UNBIASED\nTOPIC: IN_SCOPE"  # only 2 lines
+        output = "BIAS: UNBIASED\nTOPIC: IN_SCOPE"
         with pytest.raises(ValueError, match="lines"):
             validate_composite_verdict_format(output, self._INPUT_KEYS)
 
@@ -126,7 +121,7 @@ class TestValidateCompositeVerdictFormat:
             "TOPIC: IN_SCOPE\n"
             "HARMFUL_INTENT: BENIGN"
         )
-        validate_composite_verdict_format(output, self._INPUT_KEYS)  # should not raise
+        validate_composite_verdict_format(output, self._INPUT_KEYS)
 
     def test_lowercase_value_raises(self):
         output = (
@@ -135,17 +130,7 @@ class TestValidateCompositeVerdictFormat:
             "TOPIC: IN_SCOPE\n"
             "HARMFUL_INTENT: BENIGN"
         )
-        # After uppercasing the entire output, the line check will compare
-        # BUT the function uppercases the full output string.
-        # Actually, looking at the code: validate uses output.splitlines()
-        # but each line.split(":",1)[1].strip() → then matches _VERDICT_TOKEN_RE
-        # which is ^[A-Z][A-Z_]*$ — this would fail for "unbiased"
-        # Wait, let me re-check: parse_composite_verdict does .upper() but
-        # validate_composite_verdict_format doesn't uppercase - it checks raw value
-        # Actually, validate_composite_verdict_format checks:
-        #   value = line.split(":", 1)[1].strip()
-        #   if not _VERDICT_TOKEN_RE.match(value): raise
-        # And _VERDICT_TOKEN_RE = r"^[A-Z][A-Z_]*$" — so lowercase raises
+        # validate_composite_verdict_format checks raw case via _VERDICT_TOKEN_RE (^[A-Z][A-Z_]*$) — lowercase raises.
         with pytest.raises(ValueError):
             validate_composite_verdict_format(output, self._INPUT_KEYS)
 

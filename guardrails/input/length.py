@@ -7,13 +7,10 @@ from libs.logger import GuardRailEvent, log_guardrail_event
 
 
 class InputLengthGuardRail(GuardRail):
-    """
-    Rejects input exceeding the maximum character limit.
-    Fast, no API calls — runs first in the chain.
-    Spec: Technical · Security · Input
-    """
+    """Rejects input exceeding the character limit. Fast, no API calls — runs first in the chain."""
 
     def __init__(self, max_chars: Optional[int] = None) -> None:
+        # Sets max_chars from arg or falls back to the configured setting.
         if max_chars is not None:
             self._max_chars = max_chars
         else:

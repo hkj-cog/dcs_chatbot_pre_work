@@ -14,8 +14,9 @@ class GuardRailResult:
 
 class GuardRail(ABC):
     """Base class for input-layer guardrails (before_model_callback)."""
+
+    # Implemented by each input guardrail to process text and optionally block it.
     @abstractmethod
-    # Abstract interface — implemented by each input guardrail to process and optionally block user text
     async def process(
         self,
         text: str,
@@ -27,8 +28,9 @@ class GuardRail(ABC):
 
 class OutputGuardRailBase(ABC):
     """Base class for output-layer guardrails (after_model_callback)."""
+
+    # Implemented by each output guardrail to process LLM text and optionally block or modify it.
     @abstractmethod
-    # Abstract interface — implemented by each output guardrail to process and optionally block LLM output
     async def process(
         self,
         text: str,

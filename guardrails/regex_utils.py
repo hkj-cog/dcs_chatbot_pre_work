@@ -5,9 +5,7 @@ import re
 from typing import Any, List
 
 
-# ─── Secret detection patterns ────────────────────────────────────────────────
-# (compiled_pattern, type_label). More-specific patterns come first.
-
+# Secret detection patterns — (compiled_pattern, type_label); more-specific patterns listed first.
 SECRET_PATTERNS: List[tuple] = [
     (re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |)?PRIVATE KEY-----'), "PRIVATE_KEY"),
     (re.compile(r'\bAKIA[0-9A-Z]{16}\b'), "AWS_ACCESS_KEY"),
@@ -80,8 +78,7 @@ JAILBREAK_REGEX_PATTERNS: List[re.Pattern] = [
 ]
 
 
-# ─── Entropy-based secret detection ──────────────────────────────────────────
-# Context-anchored: only fires after secret-context keywords, not on case numbers or URLs.
+# Entropy-based secret detection — context-anchored; only fires after keyword prefixes, not on IDs or URLs.
 
 _ENTROPY_CONTEXT_RE = re.compile(
     r"(?i)(api[_\-]?key|secret[_\-]?key|secret|token|password|passwd|pwd"
@@ -118,10 +115,7 @@ def detect_high_entropy_secrets(text: str) -> List[str]:
 
 
 def redact_secrets(text: str) -> tuple:
-    """
-    Replaces every matched secret pattern with [REDACTED_<TYPE>].
-    Returns (redacted_text, list_of_detected_type_names).
-    """
+    """Replaces every matched secret pattern with [REDACTED_<TYPE>]; returns (redacted_text, type_names)."""
     redacted = text
     found: List[str] = []
     for pattern, secret_type in SECRET_PATTERNS:
@@ -230,10 +224,7 @@ def check_banned_words_tiered(
     context_allowlist: List[str],
     threshold: int,
 ) -> tuple:
-    """
-    Returns (tier, matched_words): hard=block, soft=soft-block, warn=log-only, None=no match.
-    Context allowlist downgrades soft→warn and warn→allow (never hard).
-    """
+    """Returns (tier, matched_words): hard=block, soft=soft-block, warn=log-only, None=clean. Context downgrades soft→warn."""
     context_reduced = bool(context_allowlist) and _is_context_unblocked(text, context_allowlist)
 
     # Hard tier — never reduced by context

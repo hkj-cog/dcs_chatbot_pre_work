@@ -136,6 +136,7 @@ dump.rdb
 # Local dev tooling artifacts
 .benchmarks/
 .claude/
+cursor.json
 
 # OS / Editor clutter
 .DS_Store

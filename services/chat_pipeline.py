@@ -19,7 +19,7 @@ from guardrails.post_process import (
 from guardrails.utils import redact_secrets
 from libs.config import GUARDRAILS_VERSION, JUDGE_MODEL, get_settings
 from libs.logger import GuardRailEvent, log_guardrail_event, logger
-from libs.phoenix_tracer import PhoenixTracer
+from libs.pipeline_tracer import PipelineTracer
 from libs.pubsub import send_message_to_pubsub
 from libs.session_threat_tracker import SessionThreatTracker
 from models.chat_models import Reference
@@ -48,6 +48,7 @@ class ChatPipeline:
     """Orchestrates the 8-step pipeline: DLP → session enrichment → agent → post-process → (DLP refs + score) → translate → threat-track → publish."""
 
     def __init__(self, runner, session_service, dlp, settings=None):
+        # Wires up scorer, post-process checkers, threat tracker, tracer, and timeout.
         s = settings or get_settings()
         location = s.google_cloud_location
 
@@ -64,7 +65,7 @@ class ChatPipeline:
             threshold=s.session_threat_threshold,
             window_seconds=s.session_threat_window_seconds,
         )
-        self._phoenix = PhoenixTracer(endpoint=s.phoenix_endpoint or None)
+        self._pipeline_tracer = PipelineTracer()
 
     # Entry point: executes all 8 pipeline steps in order; publishes a safe fallback on timeout or error
     async def run(self, ctx: PipelineContext) -> None:
@@ -121,9 +122,7 @@ class ChatPipeline:
             ctx.sanitized_input = sanitized
             ctx.dlp_input_complete = True
 
-            # Secrets pre-check: ADK stores the user message before before_model_callback fires,
-            # so SecretsInputGuardRail would be too late. Abort here to prevent credential storage.
-            # SecretsInputGuardRail stays in the chain as defence-in-depth for direct agent calls.
+            # Pre-check secrets before ADK stores the message — SecretsInputGuardRail fires too late for that path.
             _, found_secrets = redact_secrets(ctx.sanitized_input)
             if found_secrets:
                 log_guardrail_event(GuardRailEvent(
@@ -530,7 +529,7 @@ class ChatPipeline:
                 reason="Security guardrail blocked a request in this session",
             )
 
-    # Step 8b: validates guardrail gate flags then publishes the final payload to Pub/Sub and Phoenix
+    # Step 8b: validates guardrail gate flags then publishes the final payload to Pub/Sub and Cloud Trace
     async def _step_publish(self, ctx: PipelineContext) -> None:
         # Both flags must be True — if either is False a required stage was skipped (code defect).
         if not ctx.dlp_input_complete or not ctx.agent_output_complete:
@@ -553,15 +552,17 @@ class ChatPipeline:
             "references": [r.model_dump() for r in ctx.references],
             "score": ctx.score,
         }
-        await send_message_to_pubsub(payload, session_id=ctx.session_id)
-
-        # Trace after publish — tracing never blocks delivery.
-        self._phoenix.trace_pipeline(
-            session_id=ctx.session_id,
-            sanitized_input=ctx.sanitized_input,
-            final_content=ctx.final_content,
-            score=ctx.score,
-            was_blocked=ctx.final_content in ALL_BLOCK_MESSAGES,
-            guardrail_policy_version=GUARDRAILS_VERSION,
-            reference_count=len(ctx.references),
-        )
+        try:
+            await send_message_to_pubsub(payload, session_id=ctx.session_id)
+        finally:
+            # Trace regardless of publish success — tracing must never block delivery.
+            self._pipeline_tracer.trace_pipeline(
+                session_id=ctx.session_id,
+                sanitized_input=ctx.sanitized_input,
+                final_content=ctx.final_content,
+                score=ctx.score,
+                was_blocked=ctx.final_content in ALL_BLOCK_MESSAGES,
+                guardrail_policy_version=GUARDRAILS_VERSION,
+                reference_count=len(ctx.references),
+                context_chunks=[r.chunk for r in ctx.references if r.chunk],
+            )

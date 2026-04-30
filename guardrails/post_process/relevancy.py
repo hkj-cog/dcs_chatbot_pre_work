@@ -41,13 +41,10 @@ _MULTI_INTENT_NOTE = (
 
 
 class RelevancyChecker:
-    """
-    LLM judge verifying the response addresses the question.
-    PARTIAL_ANSWER appends a multi-intent redirect note (never blocks).
-    Runs before groundedness — relevancy is a pre-condition. Fail-closed.
-    """
+    """LLM judge verifying the response addresses the question. PARTIAL_ANSWER appends a redirect note. Fail-closed."""
 
     def __init__(self, model_id: str, location: str) -> None:
+        # Builds the LangChain chain for the relevancy LLM judge.
         self._chain = llm_chain(model_id, location, _RELEVANCY_PROMPT)
 
     # Runs the relevancy LLM judge; appends a multi-intent note on PARTIAL_ANSWER, blocks on NOT_RELEVANT
