@@ -148,5 +148,8 @@ async def save_chat(
 
     return JSONResponse(
         content={"reply": "accepted", "request_id": request_id},
-        headers={"x-session-id": str(session_id)},
+        headers={
+            "X-Session-Id": str(session_id),
+            "X-Request-Id": request_id,
+        },
     )

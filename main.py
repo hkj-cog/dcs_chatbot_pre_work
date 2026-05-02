@@ -77,7 +77,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Session-Id", "X-Request-Id"],
+    expose_headers=["X-Session-Id", "X-Request-Id", "Retry-After"],
 )
 
 

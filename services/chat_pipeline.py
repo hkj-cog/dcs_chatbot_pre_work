@@ -88,7 +88,7 @@ class ChatPipeline:
                 f"session={ctx.session_id} request={ctx.request_id}"
             )
             await send_message_to_pubsub(
-                {"sender": "system", "content": _AGENT_ERROR_MSG, "references": [], "score": None},
+                {"sender": "system", "content": _AGENT_ERROR_MSG, "references": [], "score": None, "request_id": ctx.request_id},
                 session_id=ctx.session_id,
             )
         except Exception as exc:
@@ -97,7 +97,7 @@ class ChatPipeline:
                 f"request={ctx.request_id}: {exc}"
             )
             await send_message_to_pubsub(
-                {"sender": "system", "content": "system_error", "references": [], "score": None},
+                {"sender": "system", "content": "system_error", "references": [], "score": None, "request_id": ctx.request_id},
                 session_id=ctx.session_id,
             )
 
@@ -541,7 +541,7 @@ class ChatPipeline:
                 f"Publishing safe fallback instead of unguarded content."
             )
             await send_message_to_pubsub(
-                {"sender": "system", "content": _OUTPUT_BLOCK_MSG, "references": [], "score": None},
+                {"sender": "system", "content": _OUTPUT_BLOCK_MSG, "references": [], "score": None, "request_id": ctx.request_id},
                 session_id=ctx.session_id,
             )
             return
@@ -551,6 +551,7 @@ class ChatPipeline:
             "content": ctx.final_content,
             "references": [r.model_dump() for r in ctx.references],
             "score": ctx.score,
+            "request_id": ctx.request_id,
         }
         try:
             await send_message_to_pubsub(payload, session_id=ctx.session_id)
