@@ -15,8 +15,11 @@ from google.genai.types import SafetySetting
 
 from google.adk.sessions import InMemorySessionService
 from google.adk.memory import InMemoryMemoryService
+from openinference.instrumentation import capture_span_context
 from opentelemetry import trace
+from phoenix.client import AsyncClient, Client
 from libs import logger
+from libs.context import chain_input_ctx
 from models.guard_rail import GuardRail, GuardRailResult
 from models.injectors import INJECTOR_REGISTRY, BaseInjector, InjectionContext
 
@@ -87,11 +90,38 @@ class VertexAIAgent:
                     if hasattr(part, "text") and part.text
                 ).strip()
 
+            raw = chain_input_ctx.get()
+            # if raw:
+            #     payload = json.loads(raw)
+            #     user_text = " ".join(
+            #         p.get("text", "")
+            #         for p in payload.get("new_message", {}).get("parts", [])
+            #     ).strip()
+            if not raw:
+                raw = "no val"
+
+            px_client = AsyncClient()
+
+            with capture_span_context() as capture:
+
+                first_span_id = capture.get_first_span_id()
+                if first_span_id:
+                    # Apply user feedback to the first span
+                    await px_client.spans.add_span_annotation(
+                        annotation_name="user_feedback",
+                        annotator_kind="HUMAN",
+                        span_id=first_span_id,
+                        label="test",
+                        score=0,
+                        explanation="agent"
+                    )
+
 
             current_span = trace.get_current_span()
             if current_span and current_span.is_recording():
                 logger.info(f"[After Agent Callback] Setting eval attributes: input={user_input}, invocation_id={callback_context.invocation_id}")
                 current_span.set_attribute("eval.input", user_input)
+                current_span.set_attribute("input.value", raw)
                 current_span.set_attribute(
                     "eval.invocation_id", 
                     callback_context.invocation_id or ""

@@ -9,6 +9,7 @@ from opentelemetry import trace
 from opentelemetry import context as otel_context
 from openinference.instrumentation import using_attributes
 from agent.vertex_agent import runner, session_service
+from libs.context import session_ctx
 from libs.logger import logger
 from libs.pubsub import send_message_to_pubsub
 from .models import ChatRequest
@@ -24,6 +25,7 @@ async def handle_user_query(user_id: str, session_id: str, user_input: str, ctx 
     response: dict[str, str] = {}
     final_content = ""
     token = otel_context.attach(ctx)
+    span = trace.get_current_span()
     try:
         with using_attributes(session_id=str(session_id), user_id=user_id):
             async for event in runner.run_async(
@@ -96,6 +98,13 @@ async def save_chat(
     if session_id:
         current_span.set_attribute("session_id", str(session_id))
         current_span.set_attribute("user_id", user_id)
+        session_ctx.set(session_id)
+
+    logger.info(f"session_id: {session_id} | context: {session_ctx.get()}")
+
+    current_span = trace.get_current_span()
+
+    current_span.set_attribute("input.value", request.user_input)
 
     with using_attributes(session_id=str(session_id), user_id=user_id):
             
