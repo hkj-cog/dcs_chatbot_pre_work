@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     session_threat_window_seconds: int = Field(default=3600, validation_alias="SESSION_THREAT_WINDOW_SECONDS")
     max_input_chars: int = Field(default=4000, validation_alias="MAX_INPUT_CHARS")
     max_output_chars: int = Field(default=8000, validation_alias="MAX_OUTPUT_CHARS")
-    pipeline_timeout_seconds: int = Field(default=20, validation_alias="PIPELINE_TIMEOUT_SECONDS")
+    pipeline_timeout_seconds: int = Field(default=18, validation_alias="PIPELINE_TIMEOUT_SECONDS")
     ban_word_fuzzy_threshold: int = Field(default=85, validation_alias="BAN_WORD_FUZZY_THRESHOLD")
     language_detection_confidence_threshold: float = Field(
         default=0.80, validation_alias="LANGUAGE_DETECTION_CONFIDENCE_THRESHOLD"

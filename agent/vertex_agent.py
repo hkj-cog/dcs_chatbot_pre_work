@@ -10,7 +10,7 @@ from google.adk.tools import VertexAiSearchTool
 from google.genai import types
 
 from agent.agent import VertexAIAgent
-from agent.prompt import INSTRUCTIONS
+from agent.prompt import INSTRUCTIONS, INSTRUCTIONS_NO_SEARCH
 from agent.utils import get_gcp_project_id
 from guardrails.constants import NON_DISABLEABLE_GUARDRAILS
 from guardrails import (
@@ -119,7 +119,7 @@ def build_runner(dlp: GoogleDlp, settings=None) -> tuple:
 
     agent_wrapper = VertexAIAgent(
         model_id=model_id,
-        instructions=INSTRUCTIONS,
+        instructions=INSTRUCTIONS if tools else INSTRUCTIONS_NO_SEARCH,
         tools=tools,
         agent_name="adk_chatbot",
         agent_description="Helps users with questions by searching the NSW Government document datastore.",

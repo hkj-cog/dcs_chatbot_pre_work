@@ -1,6 +1,7 @@
 """End-to-end processing pipeline for a single user query. Stateless; all mutable state in PipelineContext."""
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -42,6 +43,54 @@ class PipelineContext:
     # Both flags must be True before _step_publish sends content to citizens.
     dlp_input_complete: bool = False    # DLP input sanitisation ran
     agent_output_complete: bool = False  # ADK runner completed (after_model_callback fired)
+
+
+_LIST_ITEM_RE = re.compile(r"^\s*(?:[*\-+]|\d+\.)\s+")
+
+
+def _split_into_chunks(text: str) -> list[str]:
+    paragraphs = [p.strip() for p in re.split(r"\n\n+", text) if p.strip()]
+    if not paragraphs:
+        return [text] if text.strip() else []
+
+    max_chars = 300
+    chunks: list[str] = []
+
+    for para in paragraphs:
+        lines = [l.strip() for l in para.split("\n") if l.strip()]
+
+        if any(_LIST_ITEM_RE.match(l) for l in lines):
+            # Each line (heading intro or list item) becomes its own chunk.
+            pending: list[str] = []
+            for line in lines:
+                if _LIST_ITEM_RE.match(line):
+                    if pending:
+                        chunks.append(" ".join(pending))
+                        pending = []
+                    chunks.append(line)
+                else:
+                    pending.append(line)
+            if pending:
+                chunks.append(" ".join(pending))
+
+        elif len(para) <= max_chars:
+            chunks.append(para)
+
+        else:
+            sentences = re.split(r"(?<=[.!?])\s+", para)
+            current = ""
+            for sentence in sentences:
+                if not current:
+                    current = sentence
+                elif len(current) + 1 + len(sentence) <= max_chars:
+                    current += " " + sentence
+                else:
+                    chunks.append(current)
+                    current = sentence
+            if current:
+                chunks.append(current)
+
+    return chunks if chunks else [text]
 
 
 class ChatPipeline:
@@ -553,6 +602,11 @@ class ChatPipeline:
             "score": ctx.score,
             "request_id": ctx.request_id,
         }
+        # Include chunks for progressive frontend rendering; omit for block messages.
+        if ctx.final_content not in ALL_BLOCK_MESSAGES:
+            chunks = _split_into_chunks(ctx.final_content)
+            if chunks:
+                payload["chunks"] = chunks
         try:
             await send_message_to_pubsub(payload, session_id=ctx.session_id)
         finally:

@@ -56,7 +56,7 @@ MAX_INPUT_CHARS=4000
 # Maximum character length for LLM output; longer responses are blocked before delivery.
 MAX_OUTPUT_CHARS=8000
 # Hard timeout (seconds) for the entire pipeline; a timeout error message is delivered to the user if exceeded.
-PIPELINE_TIMEOUT_SECONDS=20
+PIPELINE_TIMEOUT_SECONDS=18
 
 # ── Language Detection ────────────────────────────────────────────────────────
 # Minimum detection confidence to act on a detected language; below this, language rules are skipped.

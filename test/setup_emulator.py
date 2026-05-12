@@ -1,5 +1,7 @@
 # Helper script to set up local Pub/Sub emulator with push subscription to localhost:8000
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from google.cloud import pubsub_v1
 from google.pubsub_v1.types import PushConfig, DeadLetterPolicy, RetryPolicy
 from google.protobuf.duration_pb2 import Duration
